@@ -1,0 +1,353 @@
+{
+  "name": "18650 Battery Test Workflow",
+  "actions": [
+    {
+      "name": "ABORT",
+      "displayText": "Abort",
+      "iconClass": "ABORT",
+      "i18n": [],
+      "privilegeSpecificity": [],
+      "executionAction": {
+        "action": "ABORT",
+        "type": "MANUAL"
+      }
+    },
+    {
+      "name": "APPROVE",
+      "displayText": "Approve",
+      "iconClass": "APPROVE",
+      "i18n": [],
+      "privilegeSpecificity": [],
+      "executionAction": {
+        "action": "APPROVE",
+        "type": "MANUAL"
+      }
+    },
+    {
+      "name": "CANCEL",
+      "displayText": "Cancel",
+      "iconClass": "CANCEL",
+      "i18n": [],
+      "privilegeSpecificity": [],
+      "executionAction": {
+        "action": "CANCEL",
+        "type": "MANUAL"
+      }
+    },
+    {
+      "name": "END",
+      "displayText": "End",
+      "iconClass": "END",
+      "i18n": [],
+      "privilegeSpecificity": [],
+      "executionAction": {
+        "action": "END",
+        "type": "MANUAL"
+      }
+    },
+    {
+      "name": "PAUSE",
+      "displayText": "Pause",
+      "iconClass": "PAUSE",
+      "i18n": [],
+      "privilegeSpecificity": [],
+      "executionAction": {
+        "action": "PAUSE",
+        "type": "MANUAL"
+      }
+    },
+    {
+      "name": "REJECT",
+      "displayText": "Reject",
+      "iconClass": "RESET",
+      "i18n": [],
+      "privilegeSpecificity": [],
+      "executionAction": {
+        "action": "REJECT",
+        "type": "MANUAL"
+      }
+    },
+    {
+      "name": "RESUME",
+      "displayText": "Resume",
+      "iconClass": "RESUME",
+      "i18n": [],
+      "privilegeSpecificity": [],
+      "executionAction": {
+        "action": "RESUME",
+        "type": "MANUAL"
+      }
+    },
+    {
+      "name": "SCHEDULE",
+      "displayText": "Schedule",
+      "iconClass": "SCHEDULE",
+      "i18n": [],
+      "privilegeSpecificity": [],
+      "executionAction": {
+        "action": "SCHEDULE",
+        "type": "SCHEDULE"
+      }
+    },
+    {
+      "name": "START",
+      "displayText": "Start",
+      "iconClass": "START",
+      "i18n": [],
+      "privilegeSpecificity": [],
+      "executionAction": {
+        "action": "START",
+        "type": "MANUAL"
+      }
+    },
+    {
+      "name": "SUBMIT",
+      "displayText": "Submit",
+      "iconClass": "READY",
+      "i18n": [],
+      "privilegeSpecificity": [],
+      "executionAction": {
+        "action": "SUBMIT",
+        "type": "MANUAL"
+      }
+    },
+    {
+      "name": "UNSCHEDULE",
+      "displayText": "Unschedule",
+      "iconClass": "RESET",
+      "i18n": [],
+      "privilegeSpecificity": [],
+      "executionAction": {
+        "action": "UNSCHEDULE",
+        "type": "MANUAL"
+      }
+    }
+  ],
+  "states": [
+    {
+      "name": "NEW",
+      "dashboardAvailable": false,
+      "defaultSubstate": "NEW",
+      "substates": [
+        {
+          "name": "NEW",
+          "displayText": "",
+          "i18n": [],
+          "availableActions": [
+            {
+              "action": "SUBMIT",
+              "nextState": "DEFINED",
+              "nextSubstate": "DEFINED",
+              "showInUI": true
+            },
+            {
+              "action": "CANCEL",
+              "nextState": "CANCELED",
+              "nextSubstate": "CANCELED",
+              "showInUI": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "DEFINED",
+      "dashboardAvailable": false,
+      "defaultSubstate": "DEFINED",
+      "substates": [
+        {
+          "name": "DEFINED",
+          "displayText": "",
+          "i18n": [],
+          "availableActions": [
+            {
+              "action": "APPROVE",
+              "nextState": "REVIEWED",
+              "nextSubstate": "REVIEWED",
+              "showInUI": true
+            },
+            {
+              "action": "REJECT",
+              "nextState": "NEW",
+              "nextSubstate": "NEW",
+              "showInUI": true
+            },
+            {
+              "action": "CANCEL",
+              "nextState": "CANCELED",
+              "nextSubstate": "CANCELED",
+              "showInUI": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "REVIEWED",
+      "dashboardAvailable": false,
+      "defaultSubstate": "REVIEWED",
+      "substates": [
+        {
+          "name": "REVIEWED",
+          "displayText": "",
+          "i18n": [],
+          "availableActions": [
+            {
+              "action": "SCHEDULE",
+              "nextState": "SCHEDULED",
+              "nextSubstate": "SCHEDULED",
+              "showInUI": true
+            },
+            {
+              "action": "CANCEL",
+              "nextState": "CANCELED",
+              "nextSubstate": "CANCELED",
+              "showInUI": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "SCHEDULED",
+      "dashboardAvailable": true,
+      "defaultSubstate": "SCHEDULED",
+      "substates": [
+        {
+          "name": "SCHEDULED",
+          "displayText": "",
+          "i18n": [],
+          "availableActions": [
+            {
+              "action": "START",
+              "nextState": "IN_PROGRESS",
+              "nextSubstate": "IN_PROGRESS",
+              "showInUI": true
+            },
+            {
+              "action": "UNSCHEDULE",
+              "nextState": "REVIEWED",
+              "nextSubstate": "REVIEWED",
+              "showInUI": true
+            },
+            {
+              "action": "CANCEL",
+              "nextState": "CANCELED",
+              "nextSubstate": "CANCELED",
+              "showInUI": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "IN_PROGRESS",
+      "dashboardAvailable": true,
+      "defaultSubstate": "IN_PROGRESS",
+      "substates": [
+        {
+          "name": "IN_PROGRESS",
+          "displayText": "",
+          "i18n": [],
+          "availableActions": [
+            {
+              "action": "END",
+              "nextState": "PENDING_APPROVAL",
+              "nextSubstate": "PENDING_APPROVAL",
+              "showInUI": true
+            },
+            {
+              "action": "PAUSE",
+              "nextState": "IN_PROGRESS",
+              "nextSubstate": "PAUSED",
+              "showInUI": true
+            },
+            {
+              "action": "ABORT",
+              "nextState": "PENDING_APPROVAL",
+              "nextSubstate": "PENDING_APPROVAL",
+              "showInUI": true
+            }
+          ]
+        },
+        {
+          "name": "PAUSED",
+          "displayText": "",
+          "i18n": [],
+          "availableActions": [
+            {
+              "action": "RESUME",
+              "nextState": "IN_PROGRESS",
+              "nextSubstate": "IN_PROGRESS",
+              "showInUI": true
+            },
+            {
+              "action": "ABORT",
+              "nextState": "PENDING_APPROVAL",
+              "nextSubstate": "PENDING_APPROVAL",
+              "showInUI": true
+            },
+            {
+              "action": "END",
+              "nextState": "PENDING_APPROVAL",
+              "nextSubstate": "PENDING_APPROVAL",
+              "showInUI": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "PENDING_APPROVAL",
+      "dashboardAvailable": true,
+      "defaultSubstate": "PENDING_APPROVAL",
+      "substates": [
+        {
+          "name": "PENDING_APPROVAL",
+          "displayText": "",
+          "i18n": [],
+          "availableActions": [
+            {
+              "action": "APPROVE",
+              "nextState": "CLOSED",
+              "nextSubstate": "CLOSED",
+              "showInUI": true
+            },
+            {
+              "action": "REJECT",
+              "nextState": "NEW",
+              "nextSubstate": "NEW",
+              "showInUI": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "CLOSED",
+      "dashboardAvailable": false,
+      "defaultSubstate": "CLOSED",
+      "substates": [
+        {
+          "name": "CLOSED",
+          "displayText": "",
+          "i18n": [],
+          "availableActions": []
+        }
+      ]
+    },
+    {
+      "name": "CANCELED",
+      "dashboardAvailable": false,
+      "defaultSubstate": "CANCELED",
+      "substates": [
+        {
+          "name": "CANCELED",
+          "displayText": "",
+          "i18n": [],
+          "availableActions": []
+        }
+      ]
+    }
+  ]
+}

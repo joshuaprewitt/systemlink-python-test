@@ -1,0 +1,28 @@
+{
+  "name": "18650 Battery Test",
+  "type": "testplan",
+  "templateGroup": "Battery Testing",
+  "description": "Functional/parametric test for 18650 Li-ion battery cells. Measures open circuit voltage, voltage under load, internal resistance, capacity, charge/discharge voltage, weight, and temperature.",
+  "summary": "18650 battery cell validation test — 8 parametric steps with limits from product specs.",
+  "partNumbers": ["B0CG1KL3RC"],
+  "workflowId": "422815",
+  "resources": {
+    "systems": {
+      "count": 1,
+      "filter": ""
+    },
+    "duts": {
+      "count": 1,
+      "filter": "AssetType == \"DEVICE_UNDER_TEST\""
+    },
+    "fixtures": {
+      "count": 0,
+      "filter": ""
+    }
+  },
+  "properties": {
+    "ambient_temp_c": "25.0",
+    "test_profile": "standard",
+    "charge_rate_a": "1.0"
+  }
+}

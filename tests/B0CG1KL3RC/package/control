@@ -1,0 +1,14 @@
+Package: 18650-battery-test
+Version: 1.0.0
+Section: test-applications
+Architecture: windows_all
+Depends: ni-python (>= 3.10)
+Maintainer: NI Test Engineering <test-eng@ni.com>
+XB-Plugin: file
+XB-UserVisible: yes
+Description: 18650 Battery Test — SystemLink-integrated test application
+ Functional/parametric test for 18650 Li-ion battery cells.
+ Measures open circuit voltage, voltage under load, internal resistance,
+ capacity, charge/discharge voltage, weight, and temperature.
+ Reports results to SystemLink Test Monitor with full step-level data.
+Homepage: https://github.com/ni/notebook-examples

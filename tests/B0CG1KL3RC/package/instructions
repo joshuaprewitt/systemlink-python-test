@@ -1,0 +1,3 @@
+[Instructions]
+postinstall=postinstall.bat
+preuninstall=preuninstall.bat
