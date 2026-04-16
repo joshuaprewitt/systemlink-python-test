@@ -325,82 +325,26 @@ from nisystemlink.clients.file import FileClient
 
 ### Phase 6: Packaging and Deployment
 
-Package as a `.nipkg` for distribution through SystemLink feeds.
+Package the test application as a `.nipkg` file package for distribution through
+SystemLink feeds. Refer to the **nipkg-file-package** skill
+(`{{SKILLS_DIR}}/nipkg-file-package/SKILL.md`) for:
 
-#### 6a: Package directory structure
+- Required package layout (`debian-binary`, `control/`, `data/`)
+- Valid Windows target root names (use `ProgramFiles`, not `Program Files`)
+- Control file fields (`XB-Plugin: file`, architecture constraints)
+- Instructions file format
+- Build script pattern (nipkg CLI resolution, `nipkg pack` arguments)
+- Common failure modes and fixes
 
-```
-tests/<PART_NUMBER>/
-├── package/
-│   ├── control          # nipkg metadata
-│   ├── instructions     # maps install/uninstall scripts
-│   ├── postinstall.bat  # creates venv + pip installs
-│   └── preuninstall.bat # removes venv on uninstall
-├── build_nipkg.bat      # build script (run on Windows)
-└── ...source files...
-```
+**Test-application specifics** not covered by the packaging skill:
 
-#### 6b: Control file (`package/control`)
-
-```
-Package: <package-name>
-Version: 1.0.0
-Section: test-applications
-Architecture: windows_all
-Depends: ni-python (>= 3.10)
-Maintainer: Team Name <email>
-XB-Plugin: file
-XB-UserVisible: yes
-Description: Short description
- Extended description (indented with one space).
-```
-
-#### 6c: Instructions file (`package/instructions`)
-
-```ini
-[Instructions]
-postinstall=postinstall.bat
-preuninstall=preuninstall.bat
-```
-
-#### 6d: Post-install script (`package/postinstall.bat`)
-
-Creates a Python venv at the install location and installs dependencies:
+- The `postinstall.bat` should create a Python venv and pip-install `requirements.txt`.
+- The `preuninstall.bat` should remove the venv directory.
+- Upload with: `slcli feed package upload --feed "<feed-name>" --file dist/<package>.nipkg`
+- On the target system the package installs to `C:\Program Files\NI\<package-name>\`
+  and is invoked as:
 
 ```bat
-@echo off
-set INSTALL_DIR=C:\Program Files\NI\<package-name>
-set VENV_DIR=%INSTALL_DIR%\venv
-python -m venv "%VENV_DIR%"
-"%VENV_DIR%\Scripts\pip.exe" install --no-cache-dir -r "%INSTALL_DIR%\requirements.txt"
-```
-
-#### 6e: Pre-uninstall script (`package/preuninstall.bat`)
-
-```bat
-@echo off
-set INSTALL_DIR=C:\Program Files\NI\<package-name>
-if exist "%INSTALL_DIR%\venv" rmdir /s /q "%INSTALL_DIR%\venv"
-```
-
-#### 6f: Build script (`build_nipkg.bat`)
-
-The build script:
-1. Creates `build/nipkg/data/Program Files/NI/<package-name>/` with app source files
-2. Creates `build/nipkg/control/` with control, instructions, and install scripts
-3. Runs `nipkg pack build/nipkg dist/<package-name>_<version>_windows_all.nipkg`
-
-**Requires**: NI Package Manager CLI (`nipkg`) on the build machine (Windows).
-
-#### 6g: Upload and deploy
-
-```bash
-# Upload to a SystemLink feed
-slcli feed package upload --feed "<feed-name>" --file dist/<package>.nipkg
-
-# On the target system, the package installs to:
-# C:\Program Files\NI\<package-name>\
-# Run via:
 "C:\Program Files\NI\<package-name>\venv\Scripts\python.exe" ^
   "C:\Program Files\NI\<package-name>\main.py" --work-item-id <ID>
 ```

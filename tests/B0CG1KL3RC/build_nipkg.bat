@@ -12,11 +12,22 @@ setlocal enableextensions
 set SCRIPT_DIR=%~dp0
 set PROJECT_DIR=%SCRIPT_DIR%
 set BUILD_DIR=%PROJECT_DIR%build\nipkg
-set DATA_DIR=%BUILD_DIR%\data\Program Files\NI\18650-battery-test
+set DATA_DIR=%BUILD_DIR%\data\ProgramFiles\NI\18650-battery-test
 set CONTROL_DIR=%BUILD_DIR%\control
 set DIST_DIR=%PROJECT_DIR%dist
+set NIPKG_EXE=nipkg
 
 echo === 18650 Battery Test — nipkg build ===
+
+where nipkg >nul 2>nul
+if %ERRORLEVEL% NEQ 0 (
+    if exist "C:\Program Files\National Instruments\NI Package Manager\nipkg.exe" (
+        set NIPKG_EXE=C:\Program Files\National Instruments\NI Package Manager\nipkg.exe
+    ) else (
+        echo NI Package Manager CLI not found. Install NI Package Manager or add nipkg to PATH.
+        exit /b 1
+    )
+)
 
 REM Clean previous build
 if exist "%BUILD_DIR%" rmdir /s /q "%BUILD_DIR%"
@@ -26,6 +37,7 @@ REM Create directory structure
 mkdir "%DATA_DIR%"
 mkdir "%CONTROL_DIR%"
 mkdir "%DIST_DIR%"
+> "%BUILD_DIR%\debian-binary" echo 2.0
 
 REM Copy application source files
 copy "%PROJECT_DIR%config.py" "%DATA_DIR%\"
@@ -43,7 +55,7 @@ copy "%PROJECT_DIR%package\preuninstall.bat" "%CONTROL_DIR%\"
 
 REM Build the package
 echo Building nipkg...
-nipkg pack "%BUILD_DIR%" "%DIST_DIR%\18650-battery-test_1.0.0_windows_all.nipkg"
+"%NIPKG_EXE%" pack "%BUILD_DIR%" "%DIST_DIR%"
 
 if %ERRORLEVEL% EQU 0 (
     echo.

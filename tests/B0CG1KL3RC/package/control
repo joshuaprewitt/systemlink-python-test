@@ -2,7 +2,6 @@ Package: 18650-battery-test
 Version: 1.0.0
 Section: test-applications
 Architecture: windows_all
-Depends: ni-python (>= 3.10)
 Maintainer: NI Test Engineering <test-eng@ni.com>
 XB-Plugin: file
 XB-UserVisible: yes
