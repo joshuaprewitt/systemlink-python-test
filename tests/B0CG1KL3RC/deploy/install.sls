@@ -38,20 +38,25 @@ add-python-scripts-to-path:
     - require:
       - cmd: install-python
 
-# ---------- 2. Install the test package via NI Package Manager ----------
+# ---------- 2. Register feed and install the test package ----------
 
-install-18650-battery-test:
-  cmd.run:
-    - name: >-
-        "C:\Program Files\National Instruments\NI Package Manager\nipkg.exe"
-        install 18650-battery-test
-        --accept-eulas
-        --yes
-    - unless: >-
-        "C:\Program Files\National Instruments\NI Package Manager\nipkg.exe"
-        info-installed 18650-battery-test
+Battery-Test-18650:
+  pkgrepo.managed:
+    - name: Battery-Test-18650
+    - uri: "https://demo-api.lifecyclesolutions.ni.com/nifeed/v1/feeds/170e7b9d-9126-4fdf-a884-f6e42ea180b2/files"
+    - enabled: true
+    - compressed: false
+    - trusted: true
     - require:
       - cmd: install-python
+
+packages:
+  pkg.installed:
+    - install_recommends: true
+    - pkgs:
+      - 18650-battery-test: 1.0.0
+    - require:
+      - pkgrepo: Battery-Test-18650
 
 # ---------- 3. Create venv if postinstall didn't run ----------
 
@@ -62,7 +67,7 @@ create-venv:
         "C:\Program Files\NI\18650-battery-test\venv"
     - unless: powershell -Command "Test-Path 'C:\Program Files\NI\18650-battery-test\venv\Scripts\python.exe'"
     - require:
-      - cmd: install-18650-battery-test
+      - pkg: packages
 
 install-pip-deps:
   cmd.run:

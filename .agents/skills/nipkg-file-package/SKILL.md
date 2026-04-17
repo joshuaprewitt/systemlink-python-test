@@ -183,6 +183,40 @@ scripts, configuration files, and requirements manifests. After building the `.n
 it to a feed with `slcli feed package upload` and deploy it through SystemLink software
 deployment.
 
+### Creating and Populating a Feed
+
+**Feed naming rules** — Feed names must start with an alphabetical character and may only
+contain alphanumeric characters, spaces, underscores, and hyphens. Names starting with a
+digit (e.g. `18650 Battery Test`) are rejected with `InvalidFeedName`. Use a name like
+`Battery-Test-18650` instead.
+
+**Creating a feed via API** (when `slcli feed create` returns 400 due to workspace issues):
+
+```python
+# POST /nifeed/v1/feeds
+body = {
+    "name": "Battery-Test-18650",
+    "description": "Feed for the test package",
+    "platform": "WINDOWS",       # or NI_LINUX_RT
+    "workspace": "<workspace-id>",  # UUID from /niuser/v1/workspaces
+}
+```
+
+**Uploading a package to a feed via API**:
+
+```python
+# POST /nifeed/v1/feeds/<FEED_ID>/packages
+# multipart/form-data with field name "package" (not "file")
+```
+
+**Feed URL for nipkg** — The URI to register on target systems (note: `/files` not `/packages`):
+```
+https://<server>/nifeed/v1/feeds/<FEED_ID>/files
+```
+
+**Workspace ID lookup** — Use `GET /niuser/v1/workspaces` (not `/niauth/v1/workspaces`,
+which may 404 on some SLE versions).
+
 ## Salt State (SLS) Deployment
 
 When the target system needs prerequisites (e.g. Python) that are not available as nipkg
@@ -208,10 +242,36 @@ SystemLink Systems Manager. A typical SLS for a Python test package covers:
 
 2. **Add Python to PATH** — `win_path.exists` for both the install dir and `Scripts\`.
 
-3. **Install the nipkg** — `nipkg.exe install <package> --accept-eulas --yes`,
-   guarded by `nipkg.exe info-installed <package>`.
+3. **Register the SystemLink feed** — use `pkgrepo.managed` (not `cmd.run` with
+   `nipkg feed-add`). The URI must end in `/files` (not `/packages`):
+   ```yaml
+   Battery-Test-18650:
+     pkgrepo.managed:
+       - name: Battery-Test-18650
+       - uri: "https://demo-api.example.com/nifeed/v1/feeds/<FEED_ID>/files"
+       - enabled: true
+       - compressed: false
+       - trusted: true
+   ```
 
-4. **Create venv and install pip deps** — safety net in case the nipkg `postinstall.bat`
+4. **Install the nipkg** — use `pkg.installed` (not `cmd.run` with `nipkg install`).
+   Pin versions and set `install_recommends`:
+   ```yaml
+   packages:
+     pkg.installed:
+       - install_recommends: true
+       - pkgs:
+         - my-package: 1.0.0
+       - require:
+         - pkgrepo: Battery-Test-18650
+   ```
+
+   **Important**: Always use `pkgrepo.managed` and `pkg.installed` for feed registration
+   and package installation. These are the native Salt states that SystemLink expects.
+   Using `cmd.run` with `nipkg.exe` directly bypasses Salt's package management and
+   won't be tracked properly by SystemLink Systems Manager.
+
+5. **Create venv and install pip deps** — safety net in case the nipkg `postinstall.bat`
    ran before Python was on PATH. Use `powershell -Command "Test-Path ..."` for the
    `unless` guard on Windows (not `test -d`).
 
@@ -221,3 +281,88 @@ Apply locally with:
 ```
 
 Or push remotely through SystemLink Systems Manager.
+
+### SLS Requirements for SystemLink Import
+
+**The SLS file MUST be valid YAML.** SystemLink's `import-state` endpoint validates the
+file server-side and rejects anything that is not parseable as YAML.
+
+- **No Jinja templates**: `{% set %}`, `{{ variable }}`, and Jinja filters are **not
+  supported**. Hardcode all values (Python version, paths, URLs) directly.
+- **Validate locally** before uploading: `python -c "import yaml; yaml.safe_load(open('install.sls'))"`
+- **Salt state functions that work**: `cmd.run`, `file.managed`, `file.serialize`,
+  `file.absent`, `win_path.exists`, `system.reboot`, `pkg.installed`, `pkgrepo.managed`
+  — any valid Salt state module is accepted as long as the YAML parses.
+
+### Uploading States to SystemLink
+
+The SystemLink Systems State API (`/nisystemsstate/v1/`) provides two ways to create states:
+
+#### Option 1: JSON API — Package/Feed States Only
+
+`POST /nisystemsstate/v1/states` with a JSON body. This only supports `packages` and
+`feeds` arrays (rendered as `pkg.installed` and `pkgrepo.managed` in the SLS). Use this
+when the state only needs to install nipkg packages.
+
+```python
+state = {
+    "name": "My State",
+    "description": "...",
+    "distribution": "WINDOWS",   # or NI_LINUXRT, ANY
+    "architecture": "X64",       # or ARM, X86, ANY
+    "feeds": [],
+    "packages": [{"name": "my-package", "version": "1.0.0", "installRecommends": True}],
+}
+```
+
+#### Option 2: Import State — Arbitrary SLS Content
+
+`POST /nisystemsstate/v1/import-state` with `multipart/form-data`. This accepts any
+valid YAML SLS file with custom Salt states (cmd.run, file.managed, etc.). States
+created this way have `containsExtraOperations: true` in the response.
+
+Required form fields:
+- `Name` (string) — must be unique within the workspace
+- `Distribution` (string) — `WINDOWS`, `NI_LINUXRT`, `NI_LINUXRT_NXG`, or `ANY`
+- `Architecture` (string) — `X64`, `ARM`, `X86`, or `ANY`
+- `File` (binary) — the `.sls` file
+- `Description` (string, optional)
+
+#### Option 3: Replace State Content
+
+`POST /nisystemsstate/v1/replace-state-content` with `multipart/form-data`. Updates
+an existing state's SLS content.
+
+Required form fields:
+- `Id` (string) — the state ID to update
+- `File` (binary) — the new `.sls` file
+- `ChangeDescription` (string, optional)
+
+### Common API Pitfalls
+
+- **Cloudflare blocks Python's default `urllib` User-Agent** on some SystemLink Enterprise
+  instances. Set `User-Agent: SystemLink-CLI/1.0` or similar on all requests.
+- **State names must be unique per workspace**. A duplicate name returns HTTP 409 Conflict.
+  Delete the existing state first or use `replace-state-content` to update it.
+- **Authentication**: Use the `x-ni-api-key` header. On SLE instances the API URL may
+  differ from the web URL (e.g. `demo-api.example.com` vs `demo.example.com`).
+- **Credential discovery**: Use `nisystemlink.clients.core.HttpConfigurationManager` to
+  read the active slcli profile credentials, including keys stored in the OS credential
+  manager:
+  ```python
+  from nisystemlink.clients.core import HttpConfigurationManager
+  mgr = HttpConfigurationManager()
+  cfg = mgr.get_configuration()
+  server = cfg.server_uri
+  api_key = cfg.api_keys["x-ni-api-key"]
+  ```
+
+### Upload Script Pattern
+
+A reusable `deploy/upload_state.py` script should:
+
+1. Auto-detect credentials from `HttpConfigurationManager` or slcli config
+2. Accept `--server` and `--api-key` overrides
+3. Set `User-Agent: SystemLink-CLI/1.0` on all requests
+4. Use `import-state` for SLS files with custom states (cmd.run, file.managed, etc.)
+5. Use `POST /states` JSON API for simple package-only states

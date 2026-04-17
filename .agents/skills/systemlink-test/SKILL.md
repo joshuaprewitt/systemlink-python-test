@@ -351,8 +351,11 @@ SystemLink feeds. Refer to the **nipkg-file-package** skill
 
 **System provisioning**: If Python is not pre-installed on target systems, create
 a Salt state file (`deploy/install.sls`) that installs Python, the nipkg, and sets
-up the venv. See the **nipkg-file-package** skill for the SLS pattern and quoting
-guidance. Apply via SystemLink Systems Manager or `salt-call --local`.
+up the venv. The SLS must be **valid YAML with no Jinja templates** — SystemLink's
+import-state endpoint rejects Jinja syntax. Hardcode all values directly.
+See the **nipkg-file-package** skill for the SLS pattern, quoting guidance, and
+the SystemLink Systems State API upload procedure. Apply via SystemLink Systems
+Manager or `salt-call --local`.
 
 ### Phase 7: Work Item Template and Workflow
 

@@ -525,7 +525,7 @@ Supports Windows (.nipkg) and NI Linux RT (.ipk/.deb).
 ```bash
 slcli feed list [-w WORKSPACE] [-t INT] [-f json]
 slcli feed get <FEED_ID> [-f json]
-slcli feed create --name TEXT [--workspace NAME] [OPTIONS]
+slcli feed create --name TEXT --platform [windows|ni-linux-rt] [-d TEXT] [-w TEXT] [--wait]
 slcli feed delete <FEED_ID>
 slcli feed replicate --source-id FEED_ID --target-workspace WORKSPACE [OPTIONS]
 
@@ -534,6 +534,14 @@ slcli feed package list --feed-id FEED_ID [-f json]
 slcli feed package upload --feed-id FEED_ID --file PATH
 slcli feed package delete --feed-id FEED_ID --package-name NAME
 ```
+
+**Pitfalls**:
+- `feed create` requires `--platform` (not optional) and does NOT support `-f json`.
+- Feed names must start with a letter. Names starting with digits are rejected (`InvalidFeedName`).
+- `feed create` / `feed list` may return 400 when the workspace name has spaces or special
+  characters. If this happens, use the REST API directly (`POST /nifeed/v1/feeds`) with
+  the workspace UUID from `GET /niuser/v1/workspaces`.
+- The feed package upload REST API field name is `package`, not `file`.
 
 ### file — File Service management
 
