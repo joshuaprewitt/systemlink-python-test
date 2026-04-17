@@ -2,49 +2,39 @@
 #
 # Apply via SystemLink Systems Manager or directly with:
 #   salt-call --local state.apply install
-#
-# Pillar / grain overrides:
-#   python_version: "3.12.9"   (default shown)
-#   nipkg_feed:     name of the SystemLink feed hosting the test package
 
-{% set python_version = salt['pillar.get']('python_version', '3.12.9') %}
-{% set python_major_minor = python_version.split('.')[:2] | join('.') %}
-{% set python_installer = 'python-' ~ python_version ~ '-amd64.exe' %}
-{% set python_url = 'https://www.python.org/ftp/python/' ~ python_version ~ '/' ~ python_installer %}
-{% set python_install_dir = 'C:\\Program Files\\Python' ~ python_major_minor.replace('.', '') %}
-
-# ---------- 1. Install Python ----------
+# ---------- 1. Install Python 3.12.9 ----------
 
 download-python-installer:
   file.managed:
-    - name: C:\Windows\Temp\{{ python_installer }}
-    - source: {{ python_url }}
+    - name: 'C:\Windows\Temp\python-3.12.9-amd64.exe'
+    - source: 'https://www.python.org/ftp/python/3.12.9/python-3.12.9-amd64.exe'
     - skip_verify: True
 
 install-python:
   cmd.run:
     - name: >-
-        "C:\Windows\Temp\{{ python_installer }}"
+        "C:\Windows\Temp\python-3.12.9-amd64.exe"
         /quiet
         InstallAllUsers=1
         PrependPath=1
-        "TargetDir={{ python_install_dir }}"
+        "TargetDir=C:\Program Files\Python312"
         Include_launcher=1
     - shell: cmd
     - unless: >-
-        "{{ python_install_dir }}\\python.exe" --version
+        "C:\Program Files\Python312\python.exe" --version
     - require:
       - file: download-python-installer
 
 add-python-to-path:
   win_path.exists:
-    - name: '{{ python_install_dir }}'
+    - name: 'C:\Program Files\Python312'
     - require:
       - cmd: install-python
 
 add-python-scripts-to-path:
   win_path.exists:
-    - name: '{{ python_install_dir }}\Scripts'
+    - name: 'C:\Program Files\Python312\Scripts'
     - require:
       - cmd: install-python
 
@@ -68,7 +58,7 @@ install-18650-battery-test:
 create-venv:
   cmd.run:
     - name: >-
-        "{{ python_install_dir }}\\python.exe" -m venv
+        "C:\Program Files\Python312\python.exe" -m venv
         "C:\Program Files\NI\18650-battery-test\venv"
     - unless: powershell -Command "Test-Path 'C:\Program Files\NI\18650-battery-test\venv\Scripts\python.exe'"
     - require:
