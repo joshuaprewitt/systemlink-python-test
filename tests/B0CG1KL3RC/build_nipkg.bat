@@ -6,7 +6,7 @@ REM Usage:
 REM   build_nipkg.bat
 REM
 REM Output:
-REM   dist\18650-battery-test_1.0.0_windows_all.nipkg
+REM   dist\18650-battery-test_<auto-version>_windows_all.nipkg
 
 setlocal enableextensions
 set SCRIPT_DIR=%~dp0
@@ -15,9 +15,19 @@ set BUILD_DIR=%PROJECT_DIR%build\nipkg
 set DATA_DIR=%BUILD_DIR%\data\ProgramFiles\NI\18650-battery-test
 set CONTROL_DIR=%BUILD_DIR%\control
 set DIST_DIR=%PROJECT_DIR%dist
+set CONTROL_TEMPLATE=%PROJECT_DIR%package\control
+set DEPLOY_SLS=%PROJECT_DIR%deploy\install.sls
 set NIPKG_EXE=nipkg
+set PACKAGE_VERSION=
 
 echo === 18650 Battery Test — nipkg build ===
+
+for /f "usebackq delims=" %%V in (`powershell -NoProfile -Command "Get-Date -Format '1.0.0.yyyyMMddHHmmss'"`) do set PACKAGE_VERSION=%%V
+if "%PACKAGE_VERSION%"=="" (
+    echo Failed to generate package version.
+    exit /b 1
+)
+echo Version for this build: %PACKAGE_VERSION%
 
 where nipkg >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
@@ -48,7 +58,22 @@ copy "%PROJECT_DIR%main.py" "%DATA_DIR%\"
 copy "%PROJECT_DIR%requirements.txt" "%DATA_DIR%\"
 
 REM Copy control metadata
-copy "%PROJECT_DIR%package\control" "%CONTROL_DIR%\"
+copy "%CONTROL_TEMPLATE%" "%CONTROL_DIR%\control.template" >nul
+powershell -NoProfile -Command "$p='%CONTROL_DIR%\control.template'; $o='%CONTROL_DIR%\control'; (Get-Content -Raw $p) -replace '(?m)^Version:\s*.*$','Version: %PACKAGE_VERSION%' | Set-Content -Encoding ASCII $o"
+if %ERRORLEVEL% NEQ 0 (
+    echo Failed to stamp package version into control file.
+    exit /b 1
+)
+del "%CONTROL_DIR%\control.template" >nul 2>nul
+
+if exist "%DEPLOY_SLS%" (
+    powershell -NoProfile -Command "$p='%DEPLOY_SLS%'; (Get-Content -Raw $p) -replace '(?m)^\s*-\s*18650-battery-test:\s*.*$','      - 18650-battery-test: %PACKAGE_VERSION%' | Set-Content -Encoding ASCII $p"
+    if %ERRORLEVEL% NEQ 0 (
+        echo Failed to update deploy\install.sls with package version.
+        exit /b 1
+    )
+)
+
 copy "%PROJECT_DIR%package\instructions" "%CONTROL_DIR%\"
 copy "%PROJECT_DIR%package\postinstall.bat" "%CONTROL_DIR%\"
 copy "%PROJECT_DIR%package\preuninstall.bat" "%CONTROL_DIR%\"
@@ -60,10 +85,10 @@ echo Building nipkg...
 if %ERRORLEVEL% EQU 0 (
     echo.
     echo === Build successful ===
-    echo Package: %DIST_DIR%\18650-battery-test_1.0.0_windows_all.nipkg
+    echo Package: %DIST_DIR%\18650-battery-test_%PACKAGE_VERSION%_windows_all.nipkg
     echo.
     echo To upload to SystemLink feed:
-    echo   slcli feed package upload --feed "My Feed" --file "%DIST_DIR%\18650-battery-test_1.0.0_windows_all.nipkg"
+    echo   slcli feed package upload --feed "My Feed" --file "%DIST_DIR%\18650-battery-test_%PACKAGE_VERSION%_windows_all.nipkg"
 ) else (
     echo.
     echo === Build FAILED ===
