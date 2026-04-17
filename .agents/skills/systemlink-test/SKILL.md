@@ -349,6 +349,11 @@ SystemLink feeds. Refer to the **nipkg-file-package** skill
   "C:\Program Files\NI\<package-name>\main.py" --work-item-id <ID>
 ```
 
+**System provisioning**: If Python is not pre-installed on target systems, create
+a Salt state file (`deploy/install.sls`) that installs Python, the nipkg, and sets
+up the venv. See the **nipkg-file-package** skill for the SLS pattern and quoting
+guidance. Apply via SystemLink Systems Manager or `salt-call --local`.
+
 ### Phase 7: Work Item Template and Workflow
 
 Create and publish a work item template with an associated workflow.

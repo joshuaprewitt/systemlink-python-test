@@ -68,13 +68,17 @@ Package: my-package
 Version: 1.0.0
 Section: test-applications
 Architecture: windows_all
-Depends: ni-python (>= 3.10)
 Maintainer: Team Name <team@example.com>
 XB-Plugin: file
 XB-UserVisible: yes
 Description: Short description
  Extended description on the following lines.
 ```
+
+**Note on `Depends`**: Only add `Depends:` entries for packages that are guaranteed to
+exist in a registered feed on every target system. `ni-python` is not always available;
+if you manage Python installation separately (e.g. via a Salt state), omit that dependency
+and handle it through the deployment state instead.
 
 ## Minimal Instructions File
 
@@ -151,6 +155,8 @@ REM Copy control metadata into %CONTROL_DIR%
   - Use `ProgramFiles`, not `Program Files`.
 - Root validation failures with `windows_all`
   - Avoid `_64`-only roots such as `ProgramFiles_64`.
+- `Required package not found: 'ni-python (>= 3.10)'`
+  - Remove the `Depends: ni-python` line from the control file. Install Python via a Salt state or other mechanism instead.
 
 ## Verification Steps
 
@@ -176,3 +182,42 @@ set of files to be installed directly onto the test system, such as Python sourc
 scripts, configuration files, and requirements manifests. After building the `.nipkg`, upload
 it to a feed with `slcli feed package upload` and deploy it through SystemLink software
 deployment.
+
+## Salt State (SLS) Deployment
+
+When the target system needs prerequisites (e.g. Python) that are not available as nipkg
+dependencies, create a Salt state file (`deploy/install.sls`) and apply it through
+SystemLink Systems Manager. A typical SLS for a Python test package covers:
+
+1. **Download and install Python** — use the official Windows installer with `/quiet`,
+   `InstallAllUsers=1`, `PrependPath=1`. Quote `TargetDir` carefully:
+   ```yaml
+   install-python:
+     cmd.run:
+       - name: >-
+           "C:\Windows\Temp\python-3.12.9-amd64.exe"
+           /quiet InstallAllUsers=1 PrependPath=1
+           "TargetDir=C:\Program Files\Python312"
+           Include_launcher=1
+       - shell: cmd
+       - unless: >-
+           "C:\Program Files\Python312\python.exe" --version
+   ```
+   **Critical**: Use `"TargetDir=C:\Program Files\Python312"` (quotes around the
+   entire key=value pair). If only the path is quoted (`TargetDir="C:\Program Files\..."`)      the installer may truncate at the space.
+
+2. **Add Python to PATH** — `win_path.exists` for both the install dir and `Scripts\`.
+
+3. **Install the nipkg** — `nipkg.exe install <package> --accept-eulas --yes`,
+   guarded by `nipkg.exe info-installed <package>`.
+
+4. **Create venv and install pip deps** — safety net in case the nipkg `postinstall.bat`
+   ran before Python was on PATH. Use `powershell -Command "Test-Path ..."` for the
+   `unless` guard on Windows (not `test -d`).
+
+Apply locally with:
+```
+& "C:\Program Files\National Instruments\Shared\salt-minion\salt-call.bat" --local state.apply install
+```
+
+Or push remotely through SystemLink Systems Manager.
