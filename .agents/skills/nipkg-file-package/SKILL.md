@@ -242,16 +242,29 @@ SystemLink Systems Manager. A typical SLS for a Python test package covers:
 
 2. **Add Python to PATH** — `win_path.exists` for both the install dir and `Scripts\`.
 
-3. **Register the SystemLink feed** — use `pkgrepo.managed` (not `cmd.run` with
-   `nipkg feed-add`). The URI must end in `/files` (not `/packages`):
+3. **Register the SystemLink feed** — prefer `module.run` / `pkg.mod_repo` over
+   `pkgrepo.managed`. On some SystemLink-managed systems the nipkg `pkg` module
+   requires `alias` as a positional argument; `pkgrepo.managed` passes it as a keyword
+   and raises `TypeError: get_repo() missing 1 required positional argument: 'alias'`.
+   Use the nested list syntax to avoid this:
    ```yaml
-   Battery-Test-18650:
-     pkgrepo.managed:
-       - name: Battery-Test-18650
-       - uri: "https://demo-api.example.com/nifeed/v1/feeds/<FEED_ID>/files"
-       - enabled: true
-       - compressed: false
-       - trusted: true
+   add-my-feed:
+     module.run:
+       - pkg.mod_repo:
+         - alias: My-Feed-Name
+         - uri: "https://<server>/nifeed/v1/feeds/<FEED_ID>/files"
+         - enabled: true
+         - compressed: false
+         - trusted: true
+       - require:
+         - cmd: install-python
+   ```
+   The `require` reference type for this state is `module` (not `pkgrepo`):
+   ```yaml
+   install-my-package:
+     pkg.installed:
+       - require:
+         - module: add-my-feed
    ```
 
 4. **Install the nipkg** — use `pkg.installed` (not `cmd.run` with `nipkg install`).
@@ -263,24 +276,182 @@ SystemLink Systems Manager. A typical SLS for a Python test package covers:
        - pkgs:
          - my-package: 1.0.0
        - require:
-         - pkgrepo: Battery-Test-18650
+         - module: my-feed-state-id
    ```
 
-   **Important**: Always use `pkgrepo.managed` and `pkg.installed` for feed registration
-   and package installation. These are the native Salt states that SystemLink expects.
-   Using `cmd.run` with `nipkg.exe` directly bypasses Salt's package management and
-   won't be tracked properly by SystemLink Systems Manager.
+   **Important**: Always use `module.run`/`pkg.mod_repo` and `pkg.installed` for feed
+   registration and package installation. These are the native Salt states that SystemLink
+   expects. Using `cmd.run` with `nipkg.exe` directly bypasses Salt's package management
+   and won't be tracked properly by SystemLink Systems Manager.
 
-5. **Create venv and install pip deps** — safety net in case the nipkg `postinstall.bat`
-   ran before Python was on PATH. Use `powershell -Command "Test-Path ..."` for the
-   `unless` guard on Windows (not `test -d`).
+5. **Create venv and install pip deps** — always pass `--clear` to `python -m venv` to
+   rebuild a broken or partially-created venv from a previous failed run. Use
+   `python -m ensurepip --upgrade` before `pip install` in case the venv was created
+   without pip. Use `python -m pip install` (not `pip.exe`) so the venv's pip is used:
+   ```yaml
+   create-venv:
+     cmd.run:
+       - name: >-
+           "C:\Program Files\Python312\python.exe" -m venv
+           --clear
+           "C:\Program Files\NI\my-package\venv"
+       - require:
+         - pkg: install-my-package
 
-Apply locally with:
+   ensure-venv-pip:
+     cmd.run:
+       - name: >-
+           "C:\Program Files\NI\my-package\venv\Scripts\python.exe"
+           -m ensurepip --upgrade
+       - unless: powershell -Command "Test-Path 'C:\Program Files\NI\my-package\venv\Scripts\pip.exe'"
+       - require:
+         - cmd: create-venv
+
+   install-pip-deps:
+     cmd.run:
+       - name: >-
+           "C:\Program Files\NI\my-package\venv\Scripts\python.exe"
+           -m pip install --no-cache-dir
+           -r "C:\Program Files\NI\my-package\requirements.txt"
+       - require:
+         - cmd: ensure-venv-pip
+   ```
+
+   **Note**: Do NOT add an `unless` guard to `create-venv`. Always rebuild the venv on
+   every state apply to recover from broken states. If the venv directory exists but
+   `python.exe` or `pip.exe` is missing (e.g. from a previous aborted install), the
+   `unless` guard will skip creation and subsequent steps will fail silently.
+
+## Auto-Versioning Build Script Pattern
+
+Stamp a datetime-based version into the package on every build so each nipkg uploaded
+to a feed has a unique, sortable version string:
+
+```bat
+REM Generate version: 1.0.0.yyyyMMddHHmmss
+for /f "usebackq delims=" %%V in (`powershell -NoProfile -Command "Get-Date -Format '1.0.0.yyyyMMddHHmmss'"`) do set PACKAGE_VERSION=%%V
+
+REM Stamp version into control file
+powershell -NoProfile -Command ^
+  "(Get-Content -Raw '%CONTROL_DIR%\control') -replace '(?m)^Version:\s*.*$','Version: %PACKAGE_VERSION%' ^
+  | Set-Content -Encoding ASCII '%CONTROL_DIR%\control'"
+
+REM Stamp version into deploy\install.sls (keeps SLS in sync with feed)
+powershell -NoProfile -Command ^
+  "(Get-Content -Raw '%DEPLOY_SLS%') -replace '(?m)^\s*-\s*my-package:\s*.*$','      - my-package: %PACKAGE_VERSION%' ^
+  | Set-Content -Encoding ASCII '%DEPLOY_SLS%'"
 ```
-& "C:\Program Files\National Instruments\Shared\salt-minion\salt-call.bat" --local state.apply install
+
+This ensures the package version in the feed, the control file, and the SLS are always
+consistent without manual edits.
+
+## Complete Working SLS Example
+
+The following SLS is the verified working pattern for deploying a Python test package
+to a SystemLink-managed Windows target. Copy and adapt it for new tests.
+
+```yaml
+# ---------- 1. Install Python 3.12.9 ----------
+
+download-python-installer:
+  file.managed:
+    - name: 'C:\Windows\Temp\python-3.12.9-amd64.exe'
+    - source: 'https://www.python.org/ftp/python/3.12.9/python-3.12.9-amd64.exe'
+    - skip_verify: True
+    - unless: >-
+        powershell -Command "& 'C:\Program Files\Python312\python.exe' --version 2>&1 | Select-String -Quiet '3.12.9'"
+
+install-python:
+  cmd.run:
+    - name: >-
+        "C:\Windows\Temp\python-3.12.9-amd64.exe"
+        /quiet
+        InstallAllUsers=1
+        PrependPath=1
+        TargetDir=C:\PROGRA~1\Python312
+        Include_launcher=1
+    - shell: cmd
+    - unless: >-
+        powershell -Command "$r64 = Get-ChildItem 'HKLM:\SOFTWARE\Python\PythonCore' -ErrorAction SilentlyContinue; if ($r64) { exit 0 }; $r32 = Get-ChildItem 'HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore' -ErrorAction SilentlyContinue; if ($r32) { exit 0 }; if (Test-Path 'C:\Program Files\Python312\python.exe') { exit 0 }; exit 1"
+    - require:
+      - file: download-python-installer
+
+add-python-to-path:
+  win_path.exists:
+    - name: 'C:\Program Files\Python312'
+    - require:
+      - cmd: install-python
+
+add-python-scripts-to-path:
+  win_path.exists:
+    - name: 'C:\Program Files\Python312\Scripts'
+    - require:
+      - cmd: install-python
+
+# ---------- 2. Register feed and install the test package ----------
+
+add-my-test-feed:
+  module.run:
+    - pkg.mod_repo:
+      - alias: My-Test-Feed
+      - uri: "https://<server>/nifeed/v1/feeds/<FEED_ID>/files"
+      - enabled: true
+      - compressed: false
+      - trusted: true
+    - require:
+      - cmd: install-python
+
+install-my-test-package:
+  pkg.installed:
+    - install_recommends: true
+    - pkgs:
+      - my-package: 1.0.0.20260420083348
+    - require:
+      - module: add-my-test-feed
+
+# ---------- 3. Create venv ----------
+
+create-venv:
+  cmd.run:
+    - name: >-
+        "C:\Program Files\Python312\python.exe" -m venv
+        --clear
+        "C:\Program Files\NI\my-package\venv"
+    - require:
+      - pkg: install-my-test-package
+
+ensure-venv-pip:
+  cmd.run:
+    - name: >-
+        "C:\Program Files\NI\my-package\venv\Scripts\python.exe"
+        -m ensurepip --upgrade
+    - unless: powershell -Command "Test-Path 'C:\Program Files\NI\my-package\venv\Scripts\pip.exe'"
+    - require:
+      - cmd: create-venv
+
+install-pip-deps:
+  cmd.run:
+    - name: >-
+        "C:\Program Files\NI\my-package\venv\Scripts\python.exe"
+        -m pip
+        install --no-cache-dir
+        -r "C:\Program Files\NI\my-package\requirements.txt"
+    - require:
+      - cmd: ensure-venv-pip
 ```
 
-Or push remotely through SystemLink Systems Manager.
+**Key rules from testing:**
+- `TargetDir` must use the 8.3 path `C:\PROGRA~1\Python312` — quoting `Program Files`
+  inside `cmd.run` with nested Salt string interpolation truncates at the space even
+  with outer quotes.
+- `unless` guards for Python install must check the registry AND the file path; using
+  only `python --version` can match the Salt minion's bundled Python, not the system one.
+- The `require` type for `pkg.installed` after `module.run` is `module:`, not `pkgrepo:`.
+- Never use `pkgrepo.managed` on a nipkg-backed system — it calls `pkg.get_repo(alias=...)`
+  as a keyword, but nipkg expects `alias` as a positional argument and raises a TypeError.
+- `create-venv` has no `unless` guard — always rebuild. A partial venv from a prior
+  aborted run has no `python.exe` or `pip.exe` but passes a `Test-Path` guard.
+
 
 ### SLS Requirements for SystemLink Import
 

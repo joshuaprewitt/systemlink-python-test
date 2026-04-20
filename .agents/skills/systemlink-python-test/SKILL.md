@@ -1,5 +1,5 @@
 ---
-name: systemlink-test
+name: systemlink-python-test
 description: >-
   Create Python-based device test applications that integrate with NI SystemLink.
   Use when the user asks to create a new test, build a test script, integrate a Python
@@ -170,7 +170,13 @@ Build the test runner that creates results and steps.
 3. **Execute steps sequentially** — see Phase 3a
 4. **Upload files** — see Phase 3b
 5. **Update the result** — set final status, `total_time_in_seconds`, `file_ids`
-6. **Transition work item** to `CLOSED`
+6. **Transition work item** to `PENDING_APPROVAL` (NOT `CLOSED`)
+   - `CLOSED` requires a separate APPROVE action from a reviewer
+   - Transitioning directly to `CLOSED` in code bypasses the approval gate
+   - Use `UpdateWorkItemRequest(id=work_item_id, state="PENDING_APPROVAL")`
+   - `CLOSED` requires a separate APPROVE action from a reviewer
+   - Transitioning directly to `CLOSED` in code bypasses the approval gate
+   - Use `UpdateWorkItemRequest(id=work_item_id, state="PENDING_APPROVAL")`
 
 ### Phase 3a: Step Creation
 
@@ -250,6 +256,34 @@ with open(log_path, "rb") as fp:
     )
 ```
 
+**CRITICAL — always open log files with `encoding="utf-8"`:**
+
+```python
+with open(log_path, "w", encoding="utf-8") as f:
+    f.write(log_content)
+```
+
+Windows defaults to the system code page (e.g. cp1252). Any measurement unit that
+uses a non-ASCII character — such as Ω (ohm), µ (micro), ° (degree) — will raise
+`UnicodeEncodeError` at runtime if the file is opened without an explicit encoding.
+This is a silent packaging defect; the test runs locally but fails when deployed to
+a managed system with a different locale. Always specify `encoding="utf-8"` for every
+file write.
+
+**CRITICAL — always open log files with `encoding="utf-8"`:**
+
+```python
+with open(log_path, "w", encoding="utf-8") as f:
+    f.write(log_content)
+```
+
+Windows defaults to the system code page (e.g. cp1252). Any measurement unit that
+uses a non-ASCII character — such as Ω (ohm), µ (micro), ° (degree) — will raise
+`UnicodeEncodeError` at runtime if the file is opened without an explicit encoding.
+This is a silent packaging defect; the test runs locally but fails when deployed to
+a managed system with a different locale. Always specify `encoding="utf-8"` for every
+file write.
+
 ### Phase 4: Result and Step Schema
 
 **Required result fields (CreateResultRequest):**
@@ -321,7 +355,7 @@ from nisystemlink.clients.file import FileClient
 | `StatusType` enum values | Use `StatusType.PASSED`, not string `"PASSED"` |
 | `Measurement` fields are strings | `measurement=str(value)`, `lowLimit=str(limit)` |
 | Product properties may be incomplete | Fall back to `PRODUCT_SPECS` defaults |
-| Work item state transitions | Use string values: `"IN_PROGRESS"`, `"CLOSED"` |
+| Work item state transitions | Use string values: `"IN_PROGRESS"`, `"PENDING_APPROVAL"` (not `"CLOSED"`) |
 
 ### Phase 6: Packaging and Deployment
 
@@ -382,6 +416,9 @@ Update with: `slcli workitem workflow update --id <WORKFLOW_ID> --file deploy/wo
 **IMPORTANT**: Use `partNumbers` (array of strings), NOT `partNumberFilter`.
 Include `workflowId` to associate the workflow.
 
+Always add an `executionActions` array to trigger the test automatically when a work
+item is started, rather than requiring a manual run:
+
 ```json
 {
   "name": "My Test Name",
@@ -398,17 +435,68 @@ Include `workflowId` to associate the workflow.
   },
   "properties": {
     "param_key": "default_value"
-  }
+  },
+  "executionActions": [
+    {
+      "jobs": [
+        {
+          "functions": ["cmd.run"],
+          "arguments": [
+            [
+              "set PYTHONUTF8=0 && \"C:\\Program Files\\NI\\<package-name>\\venv\\Scripts\\python.exe\" -X utf8 \"C:\\Program Files\\NI\\<package-name>\\main.py\" --work-item-id <id>",
+              { "__kwarg__": true, "shell": "cmd" }
+            ]
+          ],
+          "metadata": { "timeout": 3600, "queued": true }
+        }
+      ],
+      "action": "START",
+      "type": "JOB"
+    }
+  ]
 }
 ```
 
+**Key points for `executionActions`:**
+- `type: JOB` overrides the workflow's MANUAL START — SystemLink dispatches the Salt
+  job to the system assigned to the work item automatically when START is triggered
+- `<id>` is a SystemLink template variable replaced at dispatch time with the work item ID
+- Use `cmd.run` with `shell: cmd` and the `-X utf8` Python flag to ensure non-ASCII
+  unit characters (Ω, µ, °) don't cause `UnicodeEncodeError` on Windows targets
+- Set `timeout` in seconds (3600 = 1 hour); `queued: true` ensures the job is
+  delivered even if the minion is temporarily offline
+- The `executionActions` entry **overrides** the workflow-level action for that state;
+  it does not modify the workflow itself
+
+**Deploying / updating the template via API** (when `slcli workitem template update`
+returns 400, use the raw endpoint directly):
+
+```python
+import json, ssl, urllib.request, pathlib
+
+body = json.loads(pathlib.Path('deploy/work-item-template.json').read_text())
+wrapped = {'WorkItemTemplates': [dict(body, id='<TEMPLATE_ID>')]}
+data = json.dumps(wrapped).encode()
+req = urllib.request.Request(
+    'https://<server>/niworkitem/v1/update-workitem-templates',
+    data=data, method='POST'
+)
+req.add_header('x-ni-api-key', '<API_KEY>')
+req.add_header('Content-Type', 'application/json')
+req.add_header('User-Agent', 'SystemLink-CLI/1.0')
+ctx = ssl.create_default_context()
+with urllib.request.urlopen(req, context=ctx) as resp:
+    print(resp.read().decode())
+```
+
 Publish: `slcli workitem template create --file deploy/work-item-template.json -w <WORKSPACE>`
-Update: `slcli workitem template update <TEMPLATE_ID> --file deploy/work-item-template.json`
+Update (CLI): `slcli workitem template update <TEMPLATE_ID> --file deploy/work-item-template.json`
+Update (API): wrap body as `{"WorkItemTemplates": [<template_json_with_id>]}` and POST to `/niworkitem/v1/update-workitem-templates`
 
 #### 7c: Deployment order
 
 1. Import workflow first → get `<WORKFLOW_ID>`
-2. Add `workflowId` to template JSON
+2. Add `workflowId` and `executionActions` to template JSON
 3. Create/update template
 
 ### Phase 8: Error Handling
@@ -435,8 +523,43 @@ Retry transient HTTP errors (429, 500, 502, 503) with exponential backoff, up to
 8. **Work item template uses `partNumbers` array** — not `partNumberFilter` string
 9. **Continue after step failure** — do not abort on first failed step
 10. **Three execution modes** — interactive (prompt), automated (headless), developer (explicit creds)
+11. **Always `encoding="utf-8"` on log file writes** — Windows code page (cp1252) cannot encode unit symbols like Ω, µ, °; omitting `encoding=` is a latent bug that surfaces only on deployed systems
+12. **Work item terminal state is `PENDING_APPROVAL`, not `CLOSED`** — the test code must NOT transition to `CLOSED`; that step belongs to a human reviewer via the APPROVE action in the workflow
+13. **Use `-X utf8` when invoking Python remotely via Salt `cmd.run`** — Salt's environment does not inherit the managed system's UTF-8 locale settings; pass `python.exe -X utf8 main.py` in the execution action job command
+11. **Always `encoding="utf-8"` on log file writes** — Windows code page (cp1252) cannot encode unit symbols like Ω, µ, °; omitting `encoding=` is a latent bug that surfaces only on deployed systems
+12. **Work item terminal state is `PENDING_APPROVAL`, not `CLOSED`** — the test code must NOT transition to `CLOSED`; that step belongs to a human reviewer via the APPROVE action in the workflow
+13. **Use `-X utf8` when invoking Python remotely via Salt `cmd.run`** — Salt's environment does not inherit the managed system's UTF-8 locale settings; pass `python.exe -X utf8 main.py` in the execution action job command
 
-## References
+## Full End-to-End Deployment Checklist
 
-- [Full requirements document](./references/requirements.md)
-- [Project structure](./references/project-structure.md)
+Use this as a repeatable checklist when creating and deploying a new Python test:
+
+### Build
+- [ ] Edit `execution.py` — all file writes use `encoding="utf-8"`
+- [ ] Edit `execution.py` — work item final transition is `PENDING_APPROVAL`
+- [ ] Run `build_nipkg.bat` — produces `dist/<package>_<version>_windows_all.nipkg`
+- [ ] Version auto-stamped into `control` and `deploy/install.sls` by build script
+
+### Feed
+- [ ] Upload nipkg via API (field name `package`, not `file`):
+  ```python
+  # POST /nifeed/v1/feeds/<FEED_ID>/packages   multipart, field: package
+  ```
+- [ ] Verify with `GET /nifeed/v1/feeds/<FEED_ID>/packages`
+
+### Provisioning State
+- [ ] Update `deploy/install.sls` with new package version (auto-done by build script)
+- [ ] Upload SLS via `POST /nisystemsstate/v1/replace-state-content`
+- [ ] Dispatch `state.apply <STATE_ID>` job via `/nisysmgmt/v1/jobs` to each target system
+- [ ] Poll job to `SUCCEEDED` — check `retcode == [0]`
+
+### Work Item Template
+- [ ] `executionActions` array has `action: START`, `type: JOB`, cmd.run with `-X utf8`
+- [ ] Update template via `POST /niworkitem/v1/update-workitem-templates`
+  with `{"WorkItemTemplates": [{...template..., "id": "<TEMPLATE_ID>"}]}`
+
+### Smoke Test
+- [ ] Create a work item from template
+- [ ] Schedule + START → confirm Salt job dispatched and completes with retcode 0
+- [ ] Confirm result appears in Test Monitor with PASSED/FAILED status
+- [ ] Confirm work item lands in `PENDING_APPROVAL` (not `CLOSED`)
