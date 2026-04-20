@@ -24,5 +24,31 @@
     "ambient_temp_c": "25.0",
     "test_profile": "standard",
     "charge_rate_a": "1.0"
-  }
+  },
+  "executionActions": [
+    {
+      "jobs": [
+        {
+          "functions": [
+            "cmd.run"
+          ],
+          "arguments": [
+            [
+              "set PYTHONUTF8=0 && \"C:\\Program Files\\NI\\18650-battery-test\\venv\\Scripts\\python.exe\" -X utf8 \"C:\\Program Files\\NI\\18650-battery-test\\main.py\" --work-item-id <id>",
+              {
+                "__kwarg__": true,
+                "shell": "cmd"
+              }
+            ]
+          ],
+          "metadata": {
+            "timeout": 3600,
+            "queued": true
+          }
+        }
+      ],
+      "action": "START",
+      "type": "JOB"
+    }
+  ]
 }

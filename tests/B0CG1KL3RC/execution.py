@@ -389,7 +389,7 @@ def run_test(
     )
 
     # ---- Transition work item ----
-    wi_state = "CLOSED" if final_status == StatusType.PASSED else "CLOSED"
+    wi_state = "PENDING_APPROVAL"
     wi_client.update_work_items(
         UpdateWorkItemsRequest(
             work_items=[

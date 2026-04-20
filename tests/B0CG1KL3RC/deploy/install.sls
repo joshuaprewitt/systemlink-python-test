@@ -1,4 +1,4 @@
-# SystemLink Salt State — Install Python and the 18650 Battery Test package.
+# SystemLink Salt State ??? Install Python and the 18650 Battery Test package.
 #
 # Apply via SystemLink Systems Manager or directly with:
 #   salt-call --local state.apply install
@@ -57,7 +57,7 @@ install-battery-test-package:
   pkg.installed:
     - install_recommends: true
     - pkgs:
-      - 18650-battery-test: 1.0.0
+      - 18650-battery-test: 1.0.0.20260420083348
     - require:
       - module: add-battery-test-feed
 
@@ -90,3 +90,4 @@ install-pip-deps:
         -r "C:\Program Files\NI\18650-battery-test\requirements.txt"
     - require:
       - cmd: ensure-venv-pip
+
