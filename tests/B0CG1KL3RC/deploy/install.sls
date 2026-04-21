@@ -43,13 +43,12 @@ add-python-scripts-to-path:
 # ---------- 2. Register feed and install the test package ----------
 
 add-battery-test-feed:
-  module.run:
-    - pkg.mod_repo:
-      - alias: Battery-Test-18650
-      - uri: "https://demo-api.lifecyclesolutions.ni.com/nifeed/v1/feeds/170e7b9d-9126-4fdf-a884-f6e42ea180b2/files"
-      - enabled: true
-      - compressed: false
-      - trusted: true
+  pkgrepo.managed:
+    - name: Battery-Test-18650
+    - uri: "https://demo-api.lifecyclesolutions.ni.com/nifeed/v1/feeds/170e7b9d-9126-4fdf-a884-f6e42ea180b2/files"
+    - enabled: true
+    - compressed: false
+    - trusted: true
     - require:
       - cmd: install-python
 
@@ -59,7 +58,7 @@ install-battery-test-package:
     - pkgs:
       - 18650-battery-test: 1.0.0.20260420083348
     - require:
-      - module: add-battery-test-feed
+      - pkgrepo: add-battery-test-feed
 
 # ---------- 3. Create venv if postinstall didn't run ----------
 
