@@ -70,6 +70,7 @@ All communication uses the [`nisystemlink-clients`](https://pypi.org/project/nis
 - Python 3.10+
 - Access to an NI SystemLink server
 - `nisystemlink-clients` (see `requirements.txt`)
+- If you are editing this test or creating a new test, install [`slcli`](https://github.com/ni-kismet/systemlink-cli) so you can manage the related SystemLink resources from your development machine
 
 ## Running the Test
 
@@ -127,7 +128,9 @@ Workflow states: `NEW → DEFINED → REVIEWED → SCHEDULED → IN_PROGRESS →
 
 ## Adapting This Example
 
-To create your own test:
+To create or edit a test, install [`slcli`](https://github.com/ni-kismet/systemlink-cli) first.
+
+Then:
 
 1. **Replace `simulator.py`** with real instrument drivers (PyDAQmx, NI-VISA, etc.)
 2. **Update `config.py`** with your product's part number and default specifications
