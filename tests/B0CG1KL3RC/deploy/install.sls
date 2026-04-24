@@ -57,7 +57,7 @@ install-battery-test-package:
   pkg.installed:
     - install_recommends: true
     - pkgs:
-      - 18650-battery-test: 1.0.1.12
+      - 18650-battery-test: 1.0.1.13
     - require:
       - module: add-battery-test-feed
 
@@ -90,6 +90,7 @@ install-pip-deps:
         -r "C:\Program Files\NI\18650-battery-test\requirements.txt"
     - require:
       - cmd: ensure-venv-pip
+
 
 
 
