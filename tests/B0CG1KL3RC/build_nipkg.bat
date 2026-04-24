@@ -16,17 +16,27 @@ set DATA_DIR=%BUILD_DIR%\data\ProgramFiles\NI\18650-battery-test
 set CONTROL_DIR=%BUILD_DIR%\control
 set DIST_DIR=%PROJECT_DIR%dist
 set CONTROL_TEMPLATE=%PROJECT_DIR%package\control
+set VERSION_FILE=%PROJECT_DIR%package\version.txt
+set BUILD_NUMBER_FILE=%PROJECT_DIR%package\build_number.txt
 set DEPLOY_SLS=%PROJECT_DIR%deploy\install.sls
 set NIPKG_EXE=nipkg
 set PACKAGE_VERSION=
+set BASE_VERSION=
+set NEXT_BUILD=
 
 echo === 18650 Battery Test — nipkg build ===
 
-for /f "usebackq delims=" %%V in (`powershell -NoProfile -Command "Get-Date -Format '1.0.0.yyyyMMddHHmmss'"`) do set PACKAGE_VERSION=%%V
-if "%PACKAGE_VERSION%"=="" (
-    echo Failed to generate package version.
+REM Read base version (e.g. 1.0.1) and next build number, then increment the counter.
+set /p BASE_VERSION=<"%VERSION_FILE%"
+set /p NEXT_BUILD=<"%BUILD_NUMBER_FILE%"
+if "%BASE_VERSION%"=="" (
+    echo Failed to read package\version.txt.
     exit /b 1
 )
+if "%NEXT_BUILD%"=="" set NEXT_BUILD=0
+set PACKAGE_VERSION=%BASE_VERSION%.%NEXT_BUILD%
+set /a WRITE_BUILD=%NEXT_BUILD%+1
+echo %WRITE_BUILD%>"%BUILD_NUMBER_FILE%"
 echo Version for this build: %PACKAGE_VERSION%
 
 where nipkg >nul 2>nul

@@ -56,7 +56,7 @@ install-battery-test-package:
   pkg.installed:
     - install_recommends: true
     - pkgs:
-      - 18650-battery-test: 1.0.0.20260420083348
+      - 18650-battery-test: 1.0.1.0
     - require:
       - pkgrepo: add-battery-test-feed
 
