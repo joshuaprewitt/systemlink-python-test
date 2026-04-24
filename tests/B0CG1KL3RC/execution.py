@@ -36,8 +36,19 @@ from steps import build_step, capture_measurement, get_spec
 logger = logging.getLogger(__name__)
 
 
-def _build_open_circuit_step(result_id: str, ctx: TestContext, specs: dict[str, str]) -> CreateStepRequest:
-    started_at, duration, measured = capture_measurement(measure_open_circuit_voltage)
+def _get_env_temperature(ctx: TestContext) -> float:
+    """Read ambient_temp_c from work item properties; fallback to 25."""
+    value = ctx.work_item_properties.get("ambient_temp_c", "").strip()
+    if value:
+        try:
+            return float(value)
+        except ValueError:
+            pass
+    return 25.0
+
+
+def _build_open_circuit_step(result_id: str, ctx: TestContext, specs: dict[str, str], temp_c: float) -> CreateStepRequest:
+    started_at, duration, measured = capture_measurement(measure_open_circuit_voltage, temp_c)
     return build_step(
         result_id=result_id,
         name="Open Circuit Voltage",
@@ -54,9 +65,9 @@ def _build_open_circuit_step(result_id: str, ctx: TestContext, specs: dict[str, 
     )
 
 
-def _build_under_load_step(result_id: str, ctx: TestContext, specs: dict[str, str]) -> CreateStepRequest:
+def _build_under_load_step(result_id: str, ctx: TestContext, specs: dict[str, str], temp_c: float) -> CreateStepRequest:
     load_current = get_spec(specs, "max_continuous_discharge_current")
-    started_at, duration, measured = capture_measurement(measure_voltage_under_load, load_current)
+    started_at, duration, measured = capture_measurement(measure_voltage_under_load, load_current, temp_c)
     return build_step(
         result_id=result_id,
         name="Voltage Under Load",
@@ -74,8 +85,8 @@ def _build_under_load_step(result_id: str, ctx: TestContext, specs: dict[str, st
     )
 
 
-def _build_internal_resistance_step(result_id: str, ctx: TestContext, specs: dict[str, str]) -> CreateStepRequest:
-    started_at, duration, measured = capture_measurement(measure_internal_resistance)
+def _build_internal_resistance_step(result_id: str, ctx: TestContext, specs: dict[str, str], temp_c: float) -> CreateStepRequest:
+    started_at, duration, measured = capture_measurement(measure_internal_resistance, temp_c)
     return build_step(
         result_id=result_id,
         name="Internal Resistance",
@@ -92,8 +103,8 @@ def _build_internal_resistance_step(result_id: str, ctx: TestContext, specs: dic
     )
 
 
-def _build_capacity_step(result_id: str, ctx: TestContext, specs: dict[str, str]) -> CreateStepRequest:
-    started_at, duration, measured = capture_measurement(measure_capacity)
+def _build_capacity_step(result_id: str, ctx: TestContext, specs: dict[str, str], temp_c: float) -> CreateStepRequest:
+    started_at, duration, measured = capture_measurement(measure_capacity, temp_c)
     return build_step(
         result_id=result_id,
         name="Cell Capacity",
@@ -111,9 +122,9 @@ def _build_capacity_step(result_id: str, ctx: TestContext, specs: dict[str, str]
     )
 
 
-def _build_charge_voltage_step(result_id: str, ctx: TestContext, specs: dict[str, str]) -> CreateStepRequest:
+def _build_charge_voltage_step(result_id: str, ctx: TestContext, specs: dict[str, str], temp_c: float) -> CreateStepRequest:
     max_charge = get_spec(specs, "max_charge_voltage")
-    started_at, duration, measured = capture_measurement(measure_charge_voltage)
+    started_at, duration, measured = capture_measurement(measure_charge_voltage, temp_c)
     return build_step(
         result_id=result_id,
         name="End-of-Charge Voltage",
@@ -130,9 +141,9 @@ def _build_charge_voltage_step(result_id: str, ctx: TestContext, specs: dict[str
     )
 
 
-def _build_discharge_cutoff_step(result_id: str, ctx: TestContext, specs: dict[str, str]) -> CreateStepRequest:
+def _build_discharge_cutoff_step(result_id: str, ctx: TestContext, specs: dict[str, str], temp_c: float) -> CreateStepRequest:
     min_discharge = get_spec(specs, "min_discharge_voltage")
-    started_at, duration, measured = capture_measurement(measure_discharge_cutoff_voltage)
+    started_at, duration, measured = capture_measurement(measure_discharge_cutoff_voltage, temp_c)
     return build_step(
         result_id=result_id,
         name="Discharge Cutoff Voltage",
@@ -149,7 +160,7 @@ def _build_discharge_cutoff_step(result_id: str, ctx: TestContext, specs: dict[s
     )
 
 
-def _build_weight_step(result_id: str, ctx: TestContext, specs: dict[str, str]) -> CreateStepRequest:
+def _build_weight_step(result_id: str, ctx: TestContext, specs: dict[str, str], temp_c: float) -> CreateStepRequest:
     started_at, duration, measured = capture_measurement(measure_weight)
     return build_step(
         result_id=result_id,
@@ -167,9 +178,8 @@ def _build_weight_step(result_id: str, ctx: TestContext, specs: dict[str, str]) 
     )
 
 
-def _build_temperature_step(result_id: str, ctx: TestContext, specs: dict[str, str]) -> CreateStepRequest:
-    ambient = float(ctx.work_item_properties.get("ambient_temp_c", "25.0"))
-    started_at, duration, measured = capture_measurement(measure_temperature, ambient)
+def _build_temperature_step(result_id: str, ctx: TestContext, specs: dict[str, str], temp_c: float) -> CreateStepRequest:
+    started_at, duration, measured = capture_measurement(measure_temperature, temp_c)
     return build_step(
         result_id=result_id,
         name="Temperature Under Discharge",
@@ -179,7 +189,7 @@ def _build_temperature_step(result_id: str, ctx: TestContext, specs: dict[str, s
         low_limit=get_spec(specs, "operating_temp_low"),
         high_limit=get_spec(specs, "operating_temp_high"),
         units="°C",
-        inputs=[NamedValue(name="input.ambient_temp", value=f"{ambient} °C")],
+        inputs=[NamedValue(name="input.ambient_temp", value=f"{temp_c} °C")],
         outputs=[NamedValue(name="output.cell_surface_temp", value=str(measured))],
         part_number=ctx.part_number,
         duration=duration,
@@ -187,7 +197,12 @@ def _build_temperature_step(result_id: str, ctx: TestContext, specs: dict[str, s
     )
 
 
-def _create_running_result(tm_client: TestMonitorClient, ctx: TestContext, started_at: datetime) -> str:
+def _create_running_result(
+    tm_client: TestMonitorClient,
+    ctx: TestContext,
+    started_at: datetime,
+    ambient_temp_c: float,
+) -> str:
     response = tm_client.create_results(
         [
             CreateResultRequest(
@@ -199,7 +214,10 @@ def _create_running_result(tm_client: TestMonitorClient, ctx: TestContext, start
                 operator=ctx.operator,
                 part_number=ctx.part_number,
                 serial_number=ctx.serial_number,
-                properties={"workItemId": ctx.work_item_id},
+                properties={
+                    "workItemId": ctx.work_item_id,
+                    "ambient_temp_c": str(ambient_temp_c),
+                },
                 keywords=["18650", "battery", "li-ion"],
                 workspace=ctx.work_item.workspace,
             )
@@ -219,7 +237,7 @@ def _update_work_item_state(wi_client: WorkItemClient, work_item_id: str, state:
     logger.info("Work item %s -> %s", work_item_id, state)
 
 
-def _collect_steps(result_id: str, ctx: TestContext, specs: dict[str, str]) -> tuple[list[CreateStepRequest], list[StatusType]]:
+def _collect_steps(result_id: str, ctx: TestContext, specs: dict[str, str], temp_c: float) -> tuple[list[CreateStepRequest], list[StatusType]]:
     builders = [
         _build_open_circuit_step,
         _build_under_load_step,
@@ -234,7 +252,7 @@ def _collect_steps(result_id: str, ctx: TestContext, specs: dict[str, str]) -> t
     steps: list[CreateStepRequest] = []
     statuses: list[StatusType] = []
     for builder in builders:
-        step = builder(result_id, ctx, specs)
+        step = builder(result_id, ctx, specs, temp_c)
         steps.append(step)
         statuses.append(step.status.status_type)
 
@@ -295,10 +313,13 @@ def run_test(configuration: HttpConfiguration | None, ctx: TestContext) -> str:
     test_start = datetime.now(timezone.utc)
     specs = ctx.spec_limits
 
-    result_id = _create_running_result(tm_client, ctx, test_start)
+    temp_c = _get_env_temperature(ctx)
+    logger.info("ambient_temp_c: %.1f °C", temp_c)
+
+    result_id = _create_running_result(tm_client, ctx, test_start, temp_c)
     _update_work_item_state(wi_client, ctx.work_item_id, "IN_PROGRESS")
 
-    steps, statuses = _collect_steps(result_id, ctx, specs)
+    steps, statuses = _collect_steps(result_id, ctx, specs, temp_c)
     tm_client.create_steps(steps)
     logger.info("Published %d test steps", len(steps))
 
