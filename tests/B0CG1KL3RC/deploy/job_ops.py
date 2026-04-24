@@ -4,6 +4,9 @@ import json
 import time
 
 import _deploy_state as d
+from nisystemlink.clients.core import HttpConfiguration
+from nisystemlink.clients.testmonitor import TestMonitorClient
+from nisystemlink.clients.testmonitor.models import UpdateResultRequest
 
 TERMINAL_STATES = {"SUCCEEDED", "FAILED", "CANCELED", "TIMED_OUT"}
 
@@ -24,8 +27,8 @@ def find_system(alias_fragment: str) -> dict:
     raise SystemExit(f"No system found matching alias fragment: {alias_fragment}")
 
 
-def create_job(job_body: dict) -> str:
-    """Create a Systems Manager job and return its JID."""
+def create_job(job_body: dict) -> dict:
+    """Create a Systems Manager job and return the full create response."""
     created = d.api_post('/nisysmgmt/v1/jobs', job_body)
     print('Create response:')
     print(json.dumps(created, indent=2))
@@ -33,7 +36,24 @@ def create_job(job_body: dict) -> str:
     jid = created.get('jid') if isinstance(created, dict) else None
     if not jid:
         raise SystemExit('No jid returned from job creation')
-    return jid
+    return created
+
+
+def get_creator_login(create_response: dict) -> str | None:
+    """Extract and normalize job creator display/login name from create metadata."""
+    metadata = (create_response or {}).get('metadata') or {}
+    value = (metadata.get('user_login') or '').strip()
+    if not value:
+        return None
+
+    # Jobs API commonly returns display names as "Last, First".
+    # Normalize to "First Last" for Test Monitor operator readability.
+    if ',' in value:
+        parts = [part.strip() for part in value.split(',') if part.strip()]
+        if len(parts) >= 2:
+            return ' '.join(parts[1:] + [parts[0]])
+
+    return value
 
 
 def poll_job(jid: str, poll_seconds: int = 5, max_polls: int = 180) -> dict:
@@ -150,3 +170,21 @@ def extract_result_id(job: dict) -> str | None:
     if idx == -1:
         return None
     return result[idx + len(marker): idx + len(marker) + 36]
+
+
+def update_result_operator(result_id: str, operator_name: str) -> None:
+    """Patch the Test Monitor result operator after remote execution completes."""
+    if not result_id or not operator_name:
+        return
+
+    tm_client = TestMonitorClient(
+        HttpConfiguration(server_uri=d.SERVER, api_key=d.API_KEY)
+    )
+    tm_client.update_results(
+        [
+            UpdateResultRequest(
+                id=result_id,
+                operator=operator_name,
+            )
+        ]
+    )

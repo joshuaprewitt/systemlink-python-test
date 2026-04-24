@@ -4,7 +4,6 @@ import logging
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
 
 from nisystemlink.clients.core import ApiException, HttpConfiguration
 from nisystemlink.clients.file import FileClient
@@ -12,17 +11,15 @@ from nisystemlink.clients.testmonitor import TestMonitorClient
 from nisystemlink.clients.testmonitor.models import (
     CreateResultRequest,
     CreateStepRequest,
-    Measurement,
     NamedValue,
     Status,
     StatusType,
-    StepData,
     UpdateResultRequest,
 )
 from nisystemlink.clients.work_item import WorkItemClient
 from nisystemlink.clients.work_item.models import UpdateWorkItemRequest, UpdateWorkItemsRequest
 
-from config import PRODUCT_SPECS, PROGRAM_NAME
+from config import PROGRAM_NAME
 from initialization import TestContext
 from simulator import (
     measure_capacity,
@@ -34,112 +31,22 @@ from simulator import (
     measure_voltage_under_load,
     measure_weight,
 )
+from steps import build_step, capture_measurement, get_spec
 
 logger = logging.getLogger(__name__)
 
 
-def _get_spec(specs: dict[str, str], key: str) -> float:
-    """Read a numeric limit from resolved limits with PRODUCT_SPECS fallback."""
-    candidates = [key]
-    if key.startswith("spec."):
-        candidates.append(key[5:])
-    else:
-        candidates.append(f"spec.{key}")
-
-    value = None
-    for source in (specs, PRODUCT_SPECS):
-        for candidate in candidates:
-            candidate_value = source.get(candidate)
-            if candidate_value not in (None, ""):
-                value = candidate_value
-                break
-        if value is not None:
-            break
-
-    if value is None:
-        raise RuntimeError(f"Missing product spec: {key}")
-    return float(value)
-
-
-def _compare(value: float, low: float, high: float) -> StatusType:
-    """GELE comparison: pass if low <= value <= high."""
-    return StatusType.PASSED if low <= value <= high else StatusType.FAILED
-
-
-def _capture_measurement(
-    measure_fn: Callable[..., float],
-    *args,
-) -> tuple[datetime, float, float]:
-    """Measure a value and return (started_at, duration, value)."""
-    started_at = datetime.now(timezone.utc)
-    t0 = time.monotonic()
-    value = measure_fn(*args)
-    duration = time.monotonic() - t0
-    return started_at, duration, value
-
-
-def _build_step(
-    result_id: str,
-    name: str,
-    step_type: str,
-    spec_id: str,
-    measurement_value: float,
-    low_limit: float,
-    high_limit: float,
-    units: str,
-    inputs: list[NamedValue],
-    outputs: list[NamedValue],
-    part_number: str,
-    duration: float,
-    started_at: datetime,
-) -> CreateStepRequest:
-    """Build a CreateStepRequest with limits and measurement metadata."""
-    status_type = _compare(measurement_value, low_limit, high_limit)
-    return CreateStepRequest(
-        step_id=spec_id,
-        result_id=result_id,
-        name=name,
-        step_type=step_type,
-        status=Status(status_type=status_type),
-        total_time_in_seconds=duration,
-        started_at=started_at,
-        inputs=inputs,
-        outputs=outputs,
-        data=StepData(
-            text=name,
-            parameters=[
-                Measurement(
-                    name=name,
-                    status=status_type.value,
-                    measurement=str(measurement_value),
-                    lowLimit=str(low_limit),
-                    highLimit=str(high_limit),
-                    units=units,
-                    comparisonType="GELE",
-                    specId=spec_id,
-                )
-            ],
-        ),
-        properties={
-            "step.startedAt": started_at.isoformat(),
-            "step.duration": str(round(duration, 3)),
-            "step.limitSource": f"product:{part_number}",
-        },
-    )
-
-
 def _build_open_circuit_step(result_id: str, ctx: TestContext, specs: dict[str, str]) -> CreateStepRequest:
-    started_at, duration, measured = _capture_measurement(measure_open_circuit_voltage)
-    return _build_step(
+    started_at, duration, measured = capture_measurement(measure_open_circuit_voltage)
+    return build_step(
         result_id=result_id,
         name="Open Circuit Voltage",
         step_type="NumericLimit",
         spec_id="OutputVoltage",
         measurement_value=measured,
-        low_limit=_get_spec(specs, "voltage_low_limit"),
-        high_limit=_get_spec(specs, "voltage_high_limit"),
+        low_limit=get_spec(specs, "voltage_low_limit"),
+        high_limit=get_spec(specs, "voltage_high_limit"),
         units="V",
-        inputs=[],
         outputs=[NamedValue(name="output.ocv_voltage", value=str(measured))],
         part_number=ctx.part_number,
         duration=duration,
@@ -148,16 +55,16 @@ def _build_open_circuit_step(result_id: str, ctx: TestContext, specs: dict[str, 
 
 
 def _build_under_load_step(result_id: str, ctx: TestContext, specs: dict[str, str]) -> CreateStepRequest:
-    load_current = _get_spec(specs, "max_continuous_discharge_current")
-    started_at, duration, measured = _capture_measurement(measure_voltage_under_load, load_current)
-    return _build_step(
+    load_current = get_spec(specs, "max_continuous_discharge_current")
+    started_at, duration, measured = capture_measurement(measure_voltage_under_load, load_current)
+    return build_step(
         result_id=result_id,
         name="Voltage Under Load",
         step_type="NumericLimit",
         spec_id="OutputVoltageUnderLoad",
         measurement_value=measured,
-        low_limit=_get_spec(specs, "min_discharge_voltage"),
-        high_limit=_get_spec(specs, "voltage_high_limit"),
+        low_limit=get_spec(specs, "min_discharge_voltage"),
+        high_limit=get_spec(specs, "voltage_high_limit"),
         units="V",
         inputs=[NamedValue(name="input.load_current", value=f"{load_current} A")],
         outputs=[NamedValue(name="output.loaded_voltage", value=str(measured))],
@@ -168,17 +75,16 @@ def _build_under_load_step(result_id: str, ctx: TestContext, specs: dict[str, st
 
 
 def _build_internal_resistance_step(result_id: str, ctx: TestContext, specs: dict[str, str]) -> CreateStepRequest:
-    started_at, duration, measured = _capture_measurement(measure_internal_resistance)
-    return _build_step(
+    started_at, duration, measured = capture_measurement(measure_internal_resistance)
+    return build_step(
         result_id=result_id,
         name="Internal Resistance",
         step_type="NumericLimit",
         spec_id="InternalResistance",
         measurement_value=measured,
-        low_limit=_get_spec(specs, "internal_resistance_low_limit"),
-        high_limit=_get_spec(specs, "internal_resistance_high_limit"),
+        low_limit=get_spec(specs, "internal_resistance_low_limit"),
+        high_limit=get_spec(specs, "internal_resistance_high_limit"),
         units="mΩ",
-        inputs=[],
         outputs=[NamedValue(name="output.internal_resistance", value=str(measured))],
         part_number=ctx.part_number,
         duration=duration,
@@ -187,15 +93,15 @@ def _build_internal_resistance_step(result_id: str, ctx: TestContext, specs: dic
 
 
 def _build_capacity_step(result_id: str, ctx: TestContext, specs: dict[str, str]) -> CreateStepRequest:
-    started_at, duration, measured = _capture_measurement(measure_capacity)
-    return _build_step(
+    started_at, duration, measured = capture_measurement(measure_capacity)
+    return build_step(
         result_id=result_id,
         name="Cell Capacity",
         step_type="NumericLimit",
         spec_id="Capacity",
         measurement_value=measured,
-        low_limit=_get_spec(specs, "capacity_low_limit_mah"),
-        high_limit=_get_spec(specs, "capacity_high_limit_mah"),
+        low_limit=get_spec(specs, "capacity_low_limit_mah"),
+        high_limit=get_spec(specs, "capacity_high_limit_mah"),
         units="mAh",
         inputs=[NamedValue(name="input.charge_rate", value="1.0 A")],
         outputs=[NamedValue(name="output.measured_capacity", value=str(measured))],
@@ -206,9 +112,9 @@ def _build_capacity_step(result_id: str, ctx: TestContext, specs: dict[str, str]
 
 
 def _build_charge_voltage_step(result_id: str, ctx: TestContext, specs: dict[str, str]) -> CreateStepRequest:
-    max_charge = _get_spec(specs, "max_charge_voltage")
-    started_at, duration, measured = _capture_measurement(measure_charge_voltage)
-    return _build_step(
+    max_charge = get_spec(specs, "max_charge_voltage")
+    started_at, duration, measured = capture_measurement(measure_charge_voltage)
+    return build_step(
         result_id=result_id,
         name="End-of-Charge Voltage",
         step_type="NumericLimit",
@@ -217,7 +123,6 @@ def _build_charge_voltage_step(result_id: str, ctx: TestContext, specs: dict[str
         low_limit=max_charge - 0.05,
         high_limit=max_charge,
         units="V",
-        inputs=[],
         outputs=[NamedValue(name="output.charge_voltage", value=str(measured))],
         part_number=ctx.part_number,
         duration=duration,
@@ -226,9 +131,9 @@ def _build_charge_voltage_step(result_id: str, ctx: TestContext, specs: dict[str
 
 
 def _build_discharge_cutoff_step(result_id: str, ctx: TestContext, specs: dict[str, str]) -> CreateStepRequest:
-    min_discharge = _get_spec(specs, "min_discharge_voltage")
-    started_at, duration, measured = _capture_measurement(measure_discharge_cutoff_voltage)
-    return _build_step(
+    min_discharge = get_spec(specs, "min_discharge_voltage")
+    started_at, duration, measured = capture_measurement(measure_discharge_cutoff_voltage)
+    return build_step(
         result_id=result_id,
         name="Discharge Cutoff Voltage",
         step_type="NumericLimit",
@@ -237,7 +142,6 @@ def _build_discharge_cutoff_step(result_id: str, ctx: TestContext, specs: dict[s
         low_limit=min_discharge,
         high_limit=min_discharge + 0.2,
         units="V",
-        inputs=[],
         outputs=[NamedValue(name="output.cutoff_voltage", value=str(measured))],
         part_number=ctx.part_number,
         duration=duration,
@@ -246,17 +150,16 @@ def _build_discharge_cutoff_step(result_id: str, ctx: TestContext, specs: dict[s
 
 
 def _build_weight_step(result_id: str, ctx: TestContext, specs: dict[str, str]) -> CreateStepRequest:
-    started_at, duration, measured = _capture_measurement(measure_weight)
-    return _build_step(
+    started_at, duration, measured = capture_measurement(measure_weight)
+    return build_step(
         result_id=result_id,
         name="Cell Weight",
         step_type="NumericLimit",
         spec_id="CellWeight",
         measurement_value=measured,
-        low_limit=_get_spec(specs, "weight_low_limit"),
-        high_limit=_get_spec(specs, "weight_high_limit"),
+        low_limit=get_spec(specs, "weight_low_limit"),
+        high_limit=get_spec(specs, "weight_high_limit"),
         units="g",
-        inputs=[],
         outputs=[NamedValue(name="output.weight", value=str(measured))],
         part_number=ctx.part_number,
         duration=duration,
@@ -266,15 +169,15 @@ def _build_weight_step(result_id: str, ctx: TestContext, specs: dict[str, str]) 
 
 def _build_temperature_step(result_id: str, ctx: TestContext, specs: dict[str, str]) -> CreateStepRequest:
     ambient = float(ctx.work_item_properties.get("ambient_temp_c", "25.0"))
-    started_at, duration, measured = _capture_measurement(measure_temperature, ambient)
-    return _build_step(
+    started_at, duration, measured = capture_measurement(measure_temperature, ambient)
+    return build_step(
         result_id=result_id,
         name="Temperature Under Discharge",
         step_type="NumericLimit",
         spec_id="TemperatureUnderDischarge",
         measurement_value=measured,
-        low_limit=_get_spec(specs, "operating_temp_low"),
-        high_limit=_get_spec(specs, "operating_temp_high"),
+        low_limit=get_spec(specs, "operating_temp_low"),
+        high_limit=get_spec(specs, "operating_temp_high"),
         units="°C",
         inputs=[NamedValue(name="input.ambient_temp", value=f"{ambient} °C")],
         outputs=[NamedValue(name="output.cell_surface_temp", value=str(measured))],

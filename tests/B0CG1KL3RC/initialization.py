@@ -31,6 +31,7 @@ from config import (
     SPEC_LIMIT_BINDINGS,
     get_hostname,
 )
+from identity import resolve_operator
 
 logger = logging.getLogger(__name__)
 
@@ -274,7 +275,7 @@ def initialize(
     work_item = wi_client.get_work_item(work_item_id)
 
     part_number = work_item.part_number or PART_NUMBER
-    operator = work_item.assigned_to or "unassigned"
+    operator = resolve_operator(work_item, configuration)
     host_name = get_hostname()
     is_dev_mode = configuration is not None
     system_id = _resolve_system_id(work_item, is_dev_mode)

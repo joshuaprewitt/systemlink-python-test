@@ -10,7 +10,9 @@ from job_ops import (
     create_job,
     extract_result_id,
     find_system,
+    get_creator_login,
     poll_job,
+    update_result_operator,
 )
 
 
@@ -25,7 +27,8 @@ def _handle_install_package(args: argparse.Namespace) -> int:
         timeout_seconds=args.timeout,
         reinstall=args.reinstall,
     )
-    jid = create_job(body)
+    created = create_job(body)
+    jid = created['jid']
     print('Install job JID:', jid)
 
     final = poll_job(jid, poll_seconds=args.poll_seconds, max_polls=args.max_polls)
@@ -48,7 +51,8 @@ def _handle_run_test(args: argparse.Namespace) -> int:
 
     body = build_cmd_run_job(target['id'], cmd, timeout_seconds=args.timeout)
 
-    jid = create_job(body)
+    created = create_job(body)
+    jid = created['jid']
     print('Run job JID:', jid)
 
     final = poll_job(jid, poll_seconds=args.poll_seconds, max_polls=args.max_polls)
@@ -58,6 +62,12 @@ def _handle_run_test(args: argparse.Namespace) -> int:
     result_id = extract_result_id(final)
     if result_id:
         print('RESULT_ID', result_id)
+        creator_login = get_creator_login(created)
+        if creator_login:
+            update_result_operator(result_id, creator_login)
+            print('RESULT_OPERATOR_UPDATED', creator_login)
+        else:
+            print('RESULT_OPERATOR_UPDATED skipped (missing user_login in job metadata)')
     return 0
 
 
@@ -71,7 +81,8 @@ def _handle_apply_state(args: argparse.Namespace) -> int:
         timeout_seconds=args.timeout,
         test=args.test,
     )
-    jid = create_job(body)
+    created = create_job(body)
+    jid = created['jid']
     print('State-apply job JID:', jid)
 
     final = poll_job(jid, poll_seconds=args.poll_seconds, max_polls=args.max_polls)

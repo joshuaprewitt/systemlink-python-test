@@ -64,6 +64,8 @@ mkdir "%DIST_DIR%"
 
 REM Copy application source files
 copy "%PROJECT_DIR%config.py" "%DATA_DIR%\"
+copy "%PROJECT_DIR%identity.py" "%DATA_DIR%\"
+copy "%PROJECT_DIR%steps.py" "%DATA_DIR%\"
 copy "%PROJECT_DIR%initialization.py" "%DATA_DIR%\"
 copy "%PROJECT_DIR%execution.py" "%DATA_DIR%\"
 copy "%PROJECT_DIR%simulator.py" "%DATA_DIR%\"
