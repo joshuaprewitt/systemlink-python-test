@@ -34,9 +34,12 @@ if "%BASE_VERSION%"=="" (
     exit /b 1
 )
 if "%NEXT_BUILD%"=="" set NEXT_BUILD=0
+set /a NEXT_BUILD=0+NEXT_BUILD 2>nul
+if %ERRORLEVEL% NEQ 0 set NEXT_BUILD=0
 set PACKAGE_VERSION=%BASE_VERSION%.%NEXT_BUILD%
-set /a WRITE_BUILD=%NEXT_BUILD%+1
-echo %WRITE_BUILD%>"%BUILD_NUMBER_FILE%"
+set /a WRITE_BUILD=NEXT_BUILD+1
+if "%WRITE_BUILD%"=="" set WRITE_BUILD=1
+>"%BUILD_NUMBER_FILE%" echo(%WRITE_BUILD%
 echo Version for this build: %PACKAGE_VERSION%
 
 where nipkg >nul 2>nul

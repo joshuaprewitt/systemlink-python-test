@@ -13,6 +13,8 @@ from nisystemlink.clients.product.models import (
     CreateProductRequest,
     QueryProductsRequest,
 )
+from nisystemlink.clients.spec import SpecClient
+from nisystemlink.clients.spec.models import QuerySpecificationsRequest
 from nisystemlink.clients.assetmanagement import AssetManagementClient
 from nisystemlink.clients.assetmanagement.models import (
     Asset,
@@ -21,7 +23,14 @@ from nisystemlink.clients.assetmanagement.models import (
     QueryAssetsRequest,
 )
 
-from config import PART_NUMBER, PRODUCT_SPECS, PROGRAM_NAME, get_hostname
+from config import (
+    PART_NUMBER,
+    PRODUCT_CHARACTERISTICS,
+    PRODUCT_SPECS,
+    PROGRAM_NAME,
+    SPEC_LIMIT_BINDINGS,
+    get_hostname,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +46,7 @@ class TestContext:
     operator: str
     host_name: str
     system_id: str | None
+    spec_limits: dict[str, str] = field(default_factory=dict)
     product_properties: dict[str, str] = field(default_factory=dict)
     work_item_properties: dict[str, str] = field(default_factory=dict)
     dut_asset: Asset | None = None
@@ -46,10 +56,10 @@ def _resolve_product(
     product_client: ProductClient,
     part_number: str,
     interactive: bool,
-) -> dict[str, str]:
-    """Query the product by part number and return its spec properties.
+) -> tuple[str, dict[str, str]]:
+    """Query the product by part number and return (product_id, properties).
 
-    Creates the product with default specs if it does not exist and we are
+    Creates the product with default characteristics if it does not exist and we are
     running in interactive mode.
     """
     result = product_client.query_products_paged(
@@ -62,7 +72,7 @@ def _resolve_product(
     if result.products:
         product = result.products[0]
         logger.info("Found product %s (id=%s)", part_number, product.id)
-        return product.properties or {}
+        return product.id, (product.properties or {})
 
     if not interactive:
         raise RuntimeError(
@@ -70,23 +80,57 @@ def _resolve_product(
             "cannot prompt for data sheet. Create the product first."
         )
 
-    logger.warning("Product %s not found — creating with default specs", part_number)
+    logger.warning("Product %s not found — creating with default characteristics", part_number)
     print(f"\nProduct '{part_number}' does not exist in Test Monitor.")
-    print("Creating with default 18650 battery specifications.\n")
+    print("Creating with default 18650 battery characteristics.\n")
 
-    product_client.create_products(
+    create_resp = product_client.create_products(
         [
             CreateProductRequest(
                 part_number=part_number,
                 name="18650 Li-ion Battery Cell",
                 family="Battery",
                 keywords=["18650", "li-ion", "battery"],
-                properties=PRODUCT_SPECS,
+                properties=PRODUCT_CHARACTERISTICS,
             )
         ]
     )
     logger.info("Created product %s", part_number)
-    return dict(PRODUCT_SPECS)
+    created_id = create_resp.created_products[0].id
+    return created_id, dict(PRODUCT_CHARACTERISTICS)
+
+
+def _resolve_spec_limits(
+    spec_client: SpecClient,
+    product_id: str,
+) -> dict[str, str]:
+    """Resolve runtime test limits from linked Specification API records."""
+    response = spec_client.query_specs(
+        QuerySpecificationsRequest(productIds=[product_id], take=200)
+    )
+    specs_by_id = {spec.spec_id: spec for spec in response.specs}
+
+    limits = dict(PRODUCT_SPECS)
+    missing = []
+
+    for key, (spec_id, bound) in SPEC_LIMIT_BINDINGS.items():
+        spec = specs_by_id.get(spec_id)
+        if not spec or not spec.limit:
+            missing.append(spec_id)
+            continue
+        candidate = getattr(spec.limit, bound)
+        if candidate is None:
+            missing.append(spec_id)
+            continue
+        limits[key] = str(candidate)
+
+    if missing:
+        logger.warning(
+            "Some linked limits were missing specs/limits; using fallbacks for: %s",
+            ", ".join(sorted(set(missing))),
+        )
+
+    return limits
 
 
 def _resolve_dut(
@@ -222,6 +266,7 @@ def initialize(
     """
     wi_client = WorkItemClient(configuration)
     product_client = ProductClient(configuration)
+    spec_client = SpecClient(configuration)
     asset_client = AssetManagementClient(configuration)
 
     # --- Work item ---
@@ -234,8 +279,9 @@ def initialize(
     is_dev_mode = configuration is not None
     system_id = _resolve_system_id(work_item, is_dev_mode)
 
-    # --- Product specs ---
-    product_props = _resolve_product(product_client, part_number, interactive)
+    # --- Product + specification-linked limits ---
+    product_id, product_props = _resolve_product(product_client, part_number, interactive)
+    spec_limits = _resolve_spec_limits(spec_client, product_id)
 
     # --- DUT ---
     dut_asset = _resolve_dut(asset_client, work_item)
@@ -261,6 +307,7 @@ def initialize(
         operator=operator,
         host_name=host_name,
         system_id=system_id,
+        spec_limits=spec_limits,
         product_properties=product_props,
         work_item_properties=wi_props,
         dut_asset=dut_asset,
@@ -289,5 +336,5 @@ def _print_summary(ctx: TestContext) -> None:
     print(f"  System ID:     {ctx.system_id or 'N/A'}")
     if ctx.dut_asset:
         print(f"  DUT Model:     {ctx.dut_asset.model_name}")
-    print(f"  Specs loaded:  {len(ctx.product_properties)} properties")
+    print(f"  Spec limits:   {len(ctx.spec_limits)} values")
     print("=" * 60)

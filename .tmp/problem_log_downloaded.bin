@@ -1,0 +1,13 @@
+Test Log — 18650 Battery Test
+Work Item: 3863530
+Part: B0CG1KL3RC  Serial: 1234
+Operator: 013ee1c7-4846-4688-a6b9-9d9025fe5e4b  Host: USAUSLT-NQ01C79
+--------------------------------------------------
+  Open Circuit Voltage: PASSED  measurement=3.6704  [2.5..4.2] V
+  Voltage Under Load: PASSED  measurement=3.471  [2.5..4.2] V
+  Internal Resistance: PASSED  measurement=39.6173  [10.0..80.0] mΩ
+  Cell Capacity: PASSED  measurement=2559.6348  [2250.0..2750.0] mAh
+  End-of-Charge Voltage: PASSED  measurement=4.1896  [4.15..4.2] V
+  Discharge Cutoff Voltage: PASSED  measurement=2.5808  [2.5..2.7] V
+  Cell Weight: PASSED  measurement=44.6381  [40.0..50.0] g
+  Temperature Under Discharge: PASSED  measurement=31.211  [-20.0..60.0] °C
