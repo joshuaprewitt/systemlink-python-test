@@ -72,7 +72,7 @@ copy "%PROJECT_DIR%requirements.txt" "%DATA_DIR%\"
 
 REM Copy control metadata
 copy "%CONTROL_TEMPLATE%" "%CONTROL_DIR%\control.template" >nul
-powershell -NoProfile -Command "$p='%CONTROL_DIR%\control.template'; $o='%CONTROL_DIR%\control'; (Get-Content -Raw $p) -replace '(?m)^Version:\s*.*$','Version: %PACKAGE_VERSION%' | Set-Content -Encoding ASCII $o"
+powershell -NoProfile -Command "$p='%CONTROL_DIR%\control.template'; $o='%CONTROL_DIR%\control'; (Get-Content -Raw $p) -replace '(?m)^Version:\s*.*$','Version: %PACKAGE_VERSION%' | Set-Content -Encoding Default $o"
 if %ERRORLEVEL% NEQ 0 (
     echo Failed to stamp package version into control file.
     exit /b 1
@@ -80,7 +80,7 @@ if %ERRORLEVEL% NEQ 0 (
 del "%CONTROL_DIR%\control.template" >nul 2>nul
 
 if exist "%DEPLOY_SLS%" (
-    powershell -NoProfile -Command "$p='%DEPLOY_SLS%'; (Get-Content -Raw $p) -replace '(?m)^\s*-\s*18650-battery-test:\s*.*$','      - 18650-battery-test: %PACKAGE_VERSION%' | Set-Content -Encoding ASCII $p"
+    powershell -NoProfile -Command "$p='%DEPLOY_SLS%'; (Get-Content -Raw $p) -replace '(?m)^\s*-\s*18650-battery-test:\s*.*$','      - 18650-battery-test: %PACKAGE_VERSION%' | Set-Content -Encoding Default $p"
     if %ERRORLEVEL% NEQ 0 (
         echo Failed to update deploy\install.sls with package version.
         exit /b 1
