@@ -20,7 +20,7 @@ install-python:
         /quiet
         InstallAllUsers=1
         PrependPath=1
-        TargetDir=C:\PROGRA~1\Python312
+        "TargetDir=C:\Program Files\Python312"
         Include_launcher=1
     - shell: cmd
     - unless: >-

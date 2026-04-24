@@ -224,21 +224,25 @@ dependencies, create a Salt state file (`deploy/install.sls`) and apply it throu
 SystemLink Systems Manager. A typical SLS for a Python test package covers:
 
 1. **Download and install Python** — use the official Windows installer with `/quiet`,
-   `InstallAllUsers=1`, `PrependPath=1`. Quote `TargetDir` carefully:
+   `InstallAllUsers=1`, `PrependPath=1`. For `TargetDir`, pass the full
+   `key=value` as one quoted argument when using `Program Files`:
    ```yaml
    install-python:
      cmd.run:
        - name: >-
            "C:\Windows\Temp\python-3.12.9-amd64.exe"
-           /quiet InstallAllUsers=1 PrependPath=1
-           "TargetDir=C:\Program Files\Python312"
-           Include_launcher=1
+            /quiet
+            InstallAllUsers=1
+            PrependPath=1
+            "TargetDir=C:\Program Files\Python312"
+            Include_launcher=1
        - shell: cmd
        - unless: >-
            "C:\Program Files\Python312\python.exe" --version
    ```
-   **Critical**: Use `"TargetDir=C:\Program Files\Python312"` (quotes around the
-   entire key=value pair). If only the path is quoted (`TargetDir="C:\Program Files\..."`)      the installer may truncate at the space.
+         **Critical**: In SystemLink/Salt `cmd.run` contexts, keep `TargetDir` as a single
+         quoted argument (for example `"TargetDir=C:\Program Files\Python312"`) and verify
+         install path checks.
 
 2. **Add Python to PATH** — `win_path.exists` for both the install dir and `Scripts\`.
 
@@ -345,6 +349,10 @@ package/
 └── preuninstall.bat
 ```
 
+If your build script stamps versions through `control.template`, treat it as a
+temporary staging artifact copied from `package/control`; the packaged output
+should still contain `control/control`.
+
 ### Build script snippet
 
 ```bat
@@ -406,7 +414,7 @@ install-python:
         /quiet
         InstallAllUsers=1
         PrependPath=1
-        TargetDir=C:\PROGRA~1\Python312
+        "TargetDir=C:\Program Files\Python312"
         Include_launcher=1
     - shell: cmd
     - unless: >-
@@ -443,7 +451,7 @@ install-my-test-package:
   pkg.installed:
     - install_recommends: true
     - pkgs:
-      - my-package: 1.0.0.20260420083348
+      - my-package: 1.0.1.0
     - require:
       - module: add-my-test-feed
 
@@ -479,9 +487,9 @@ install-pip-deps:
 ```
 
 **Key rules from testing:**
-- `TargetDir` must use the 8.3 path `C:\PROGRA~1\Python312` — quoting `Program Files`
-  inside `cmd.run` with nested Salt string interpolation truncates at the space even
-  with outer quotes.
+- Pass `TargetDir` as one quoted key/value argument when using `Program Files`
+  (`"TargetDir=C:\Program Files\Python312"`) and keep explicit registry/path checks
+  in `unless` guards.
 - `unless` guards for Python install must check the registry AND the file path; using
   only `python --version` can match the Salt minion's bundled Python, not the system one.
 - The `require` type for `pkg.installed` after `module.run` is `module:`, not `pkgrepo:`.
@@ -500,7 +508,7 @@ file server-side and rejects anything that is not parseable as YAML.
   supported**. Hardcode all values (Python version, paths, URLs) directly.
 - **Validate locally** before uploading: `python -c "import yaml; yaml.safe_load(open('install.sls'))"`
 - **Salt state functions that work**: `cmd.run`, `file.managed`, `file.serialize`,
-  `file.absent`, `win_path.exists`, `system.reboot`, `pkg.installed`, `pkgrepo.managed`
+  `file.absent`, `win_path.exists`, `system.reboot`, `module.run`, `pkg.installed`
   — any valid Salt state module is accepted as long as the YAML parses.
 
 ### Uploading States to SystemLink
@@ -510,8 +518,9 @@ The SystemLink Systems State API (`/nisystemsstate/v1/`) provides two ways to cr
 #### Option 1: JSON API — Package/Feed States Only
 
 `POST /nisystemsstate/v1/states` with a JSON body. This only supports `packages` and
-`feeds` arrays (rendered as `pkg.installed` and `pkgrepo.managed` in the SLS). Use this
-when the state only needs to install nipkg packages.
+`feeds` arrays for package/feed-only workflows. Use this when the state only needs to
+install nipkg packages. For custom SLS uploads, continue using the verified
+`module.run` + `pkg.mod_repo` pattern.
 
 ```python
 state = {

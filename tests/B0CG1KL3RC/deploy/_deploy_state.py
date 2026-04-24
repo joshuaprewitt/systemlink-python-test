@@ -1,5 +1,6 @@
 """Find Josh's Laptop system ID and explore the Jobs API."""
 import json
+import argparse
 import ssl
 import sys
 import urllib.request
@@ -9,6 +10,7 @@ SERVER = "https://demo-api.lifecyclesolutions.ni.com"
 API_KEY = "D_QX7SLNROWBVWJfas8k2MgbWvUjNZN9UXunz8mq-G"
 UA = "SystemLink-CLI/1.0"
 CTX = ssl.create_default_context()
+TARGET_SYSTEM_ALIAS = "Josh's Laptop"
 
 
 def api_get(path):
@@ -37,10 +39,11 @@ def api_post(path, body):
         return None
 
 
-def find_system(name_fragment):
-    # Try query-systems with DEFAULT projection to get all fields
+def find_system_by_exact_name(preferred_name):
+    # Query systems and match exact alias/hostname name (case-insensitive).
     body = {"take": 200}
     result = api_post("/nisysmgmt/v1/query-systems", body)
+    normalized = preferred_name.lower()
     if result:
         for s in result.get("data", []):
             if s is None:
@@ -51,19 +54,35 @@ def find_system(name_fragment):
             state = s.get("state", "")
             if alias or hostname:
                 print(f"  {sid}  alias={alias}  host={hostname}  state={state}")
-            if name_fragment.lower() in alias.lower() or name_fragment.lower() in hostname.lower():
+            if alias.lower() == normalized or hostname.lower() == normalized:
                 return sid
     return None
 
 
 if __name__ == "__main__":
-    SYSTEM_ID = "Latitude_7420--SN-688W9K3--MAC-10-51-07-3C-0C-44"
+    SYSTEM_ID = None
     TARGET_WORKSPACE = "07f93ff9-7d8c-4732-b91e-2d16c5ecc5d8"  # PM Demos
+
+    parser = argparse.ArgumentParser(description="Replace and deploy the battery-test state")
+    parser.add_argument(
+        "--alias",
+        default=TARGET_SYSTEM_ALIAS,
+        help="Exact system alias/hostname to target (default: Josh's Laptop)",
+    )
+    args = parser.parse_args()
+    target_alias = args.alias
 
     import pathlib
     import uuid
 
     SLS_FILE = pathlib.Path(r"C:\Github\systemlink-python-test\tests\B0CG1KL3RC\deploy\install.sls")
+
+    # Step 0: Resolve target system using explicit Josh laptop aliases.
+    SYSTEM_ID = find_system_by_exact_name(target_alias)
+    if not SYSTEM_ID:
+        print(f"Failed to resolve target system for alias '{target_alias}'.", file=sys.stderr)
+        sys.exit(1)
+    print(f"Target system: {SYSTEM_ID}")
 
     # Step 1: Find existing state in PM Demos workspace
     print("=== Finding existing state in PM Demos ===")
@@ -122,7 +141,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Step 3: Deploy the state via job
-    print(f"\n=== Deploying state {target_state_id} to Josh's Laptop ===")
+    print(f"\n=== Deploying state {target_state_id} to {target_alias} ===")
     job_body = {
         "tgt": [SYSTEM_ID],
         "fun": ["state.apply", "system.get_reboot_required_witnessed"],
@@ -138,7 +157,13 @@ if __name__ == "__main__":
 
     result = api_post("/nisysmgmt/v1/jobs", job_body)
     if result:
-        jid = result.get("jid", "unknown")
+        jid = result.get("jid") if isinstance(result, dict) else None
+        if not jid:
+            print("Failed to create job: no JID returned.", file=sys.stderr)
+            print("Create response:")
+            print(json.dumps(result, indent=2))
+            sys.exit(1)
+
         print(f"Job created! JID: {jid}")
 
         # Poll for completion
