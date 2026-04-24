@@ -231,18 +231,18 @@ SystemLink Systems Manager. A typical SLS for a Python test package covers:
      cmd.run:
        - name: >-
            "C:\Windows\Temp\python-3.12.9-amd64.exe"
-            /quiet
-            InstallAllUsers=1
-            PrependPath=1
-            "TargetDir=C:\Program Files\Python312"
-            Include_launcher=1
+           /quiet
+           InstallAllUsers=1
+           PrependPath=1
+           "TargetDir=C:\Program Files\Python312"
+           Include_launcher=1
        - shell: cmd
        - unless: >-
-           "C:\Program Files\Python312\python.exe" --version
+           powershell -Command "$r64 = Get-ChildItem 'HKLM:\SOFTWARE\Python\PythonCore' -ErrorAction SilentlyContinue; if ($r64) { exit 0 }; $r32 = Get-ChildItem 'HKLM:\SOFTWARE\WOW6432Node\Python\PythonCore' -ErrorAction SilentlyContinue; if ($r32) { exit 0 }; if (Test-Path 'C:\Program Files\Python312\python.exe') { exit 0 }; exit 1"
    ```
-         **Critical**: In SystemLink/Salt `cmd.run` contexts, keep `TargetDir` as a single
-         quoted argument (for example `"TargetDir=C:\Program Files\Python312"`) and verify
-         install path checks.
+   **Critical**: In SystemLink/Salt `cmd.run` contexts, keep `TargetDir` as a single
+   quoted argument (for example `"TargetDir=C:\Program Files\Python312"`) and verify
+   install path checks.
 
 2. **Add Python to PATH** — `win_path.exists` for both the install dir and `Scripts\`.
 
@@ -349,15 +349,18 @@ package/
 └── preuninstall.bat
 ```
 
-If your build script stamps versions through `control.template`, treat it as a
-temporary staging artifact copied from `package/control`; the packaged output
-should still contain `control/control`.
+If your build script stamps versions through `control.template`, keep
+`control.template` in source control as the input template and write the stamped
+result to `control` during the build.
 
 ### Build script snippet
 
 ```bat
-set VERSION_FILE=%PROJECT_DIR%package\version.txt
-set BUILD_NUMBER_FILE=%PROJECT_DIR%package\build_number.txt
+set SCRIPT_DIR=%~dp0
+set CONTROL_DIR=%SCRIPT_DIR%build\nipkg\control
+set DEPLOY_SLS=%SCRIPT_DIR%deploy\install.sls
+set VERSION_FILE=%SCRIPT_DIR%package\version.txt
+set BUILD_NUMBER_FILE=%SCRIPT_DIR%package\build_number.txt
 set BASE_VERSION=
 set NEXT_BUILD=
 
@@ -388,8 +391,6 @@ powershell -NoProfile -Command ^
 2. On the next build: reads `1`, produces `1.0.1.1`, writes `2` back, and so on.
 3. To bump major/minor/patch: edit `version.txt` and reset `build_number.txt` to `0`.
 4. Commit both files so the counter is shared across machines / CI runs.
-
-
 
 ## Complete Working SLS Example
 
