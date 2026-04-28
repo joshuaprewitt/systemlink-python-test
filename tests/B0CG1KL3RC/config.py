@@ -11,31 +11,49 @@ logger = logging.getLogger(__name__)
 PROGRAM_NAME = "18650 Battery Test"
 PART_NUMBER = "B0CG1KL3RC"
 
-# 18650 battery product specifications — used as defaults when creating the product.
-# Limits are sourced from product properties at runtime (not these constants).
+# Product characteristics belong on the product record.
+PRODUCT_CHARACTERISTICS = {
+    "cell_type": "Cylindrical",
+    "nom_volt": "3.7",
+    "Capacity": "3600",
+    "Symbol": "Battery Cell",
+    "(NewField_468e015f-0)": "45",
+    "(NewField_4f156673-f)": "18x65",
+}
+
+# 18650 battery test limits used as local fallbacks.
+# Primary limits should come from Specification API records linked to the product.
 PRODUCT_SPECS = {
-    "spec.nominal_voltage": "3.7",
-    "spec.nominal_voltage_units": "V",
-    "spec.voltage_low_limit": "2.5",
-    "spec.voltage_high_limit": "4.2",
-    "spec.nominal_capacity_mah": "2500",
-    "spec.capacity_low_limit_mah": "2250",
-    "spec.capacity_high_limit_mah": "2750",
-    "spec.max_charge_voltage": "4.2",
-    "spec.max_charge_voltage_units": "V",
-    "spec.min_discharge_voltage": "2.5",
-    "spec.min_discharge_voltage_units": "V",
-    "spec.max_continuous_discharge_current": "5.0",
-    "spec.max_continuous_discharge_current_units": "A",
-    "spec.internal_resistance_low_limit": "10",
-    "spec.internal_resistance_high_limit": "80",
-    "spec.internal_resistance_units": "mΩ",
-    "spec.weight_low_limit": "40",
-    "spec.weight_high_limit": "50",
-    "spec.weight_units": "g",
-    "spec.operating_temp_low": "-20",
-    "spec.operating_temp_high": "60",
-    "spec.operating_temp_units": "°C",
+    "voltage_low_limit": "2.5",
+    "voltage_high_limit": "4.2",
+    "capacity_low_limit_mah": "2250",
+    "capacity_high_limit_mah": "2750",
+    "max_charge_voltage": "4.2",
+    "min_discharge_voltage": "2.5",
+    "max_continuous_discharge_current": "5.0",
+    "internal_resistance_low_limit": "10",
+    "internal_resistance_high_limit": "80",
+    "weight_low_limit": "40",
+    "weight_high_limit": "50",
+    "operating_temp_low": "-20",
+    "operating_temp_high": "60",
+}
+
+# Maps runtime limit keys to linked spec IDs and the limit field to read.
+SPEC_LIMIT_BINDINGS = {
+    "voltage_low_limit": ("OutputVoltage", "min"),
+    "voltage_high_limit": ("OutputVoltage", "max"),
+    "max_continuous_discharge_current": ("MaxContinuousDischargeCurrent", "max"),
+    "min_discharge_voltage": ("DischargeCutoffVoltage", "min"),
+    "internal_resistance_low_limit": ("InternalResistance", "min"),
+    "internal_resistance_high_limit": ("InternalResistance", "max"),
+    "capacity_low_limit_mah": ("Capacity", "min"),
+    "capacity_high_limit_mah": ("Capacity", "max"),
+    "max_charge_voltage": ("EndOfChargeVoltage", "max"),
+    "weight_low_limit": ("CellWeight", "min"),
+    "weight_high_limit": ("CellWeight", "max"),
+    "operating_temp_low": ("TemperatureUnderDischarge", "min"),
+    "operating_temp_high": ("TemperatureUnderDischarge", "max"),
 }
 
 

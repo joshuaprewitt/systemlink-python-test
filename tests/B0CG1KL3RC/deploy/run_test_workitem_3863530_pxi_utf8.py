@@ -1,30 +1,27 @@
-import json
-import time
-import _deploy_state as d
+"""Compatibility wrapper for legacy PYTHONUTF8=1 run command.
 
-target = 'NI_PXIe-8880--SN-031062CE--MAC-00-80-2F-16-5C-C1'
-work_item_id = '3863530'
-cmd = 'set PYTHONUTF8=1 && "C:\\Program Files\\NI\\18650-battery-test\\venv\\Scripts\\python.exe" "C:\\Program Files\\NI\\18650-battery-test\\main.py" --work-item-id ' + work_item_id
+Equivalent modern command:
+  python ops.py run-test --alias "NI_PXIe-8880--SN-031062CE--MAC-00-80-2F-16-5C-C1" --work-item-id 3863530 --cmd-prefix "set PYTHONUTF8=1"
+"""
 
-job_body = {
-    'tgt': [target],
-    'fun': ['cmd.run'],
-    'arg': [[cmd, {'__kwarg__': True, 'shell': 'cmd'}]],
-    'metadata': {'queued': True, 'timeout': 3600},
-}
+import sys
 
-created = d.api_post('/nisysmgmt/v1/jobs', job_body)
-print('Created job:', json.dumps(created, indent=2))
-jid = created.get('jid') if isinstance(created, dict) else None
-if not jid:
-    raise SystemExit('No JID returned')
+from ops import main
 
-for i in range(1, 241):
-    raw = d.api_get(f'/nisysmgmt/v1/jobs?jid={jid}')
-    job = raw[0] if isinstance(raw, list) and raw else raw
-    state = job.get('state', 'UNKNOWN') if isinstance(job, dict) else 'UNKNOWN'
-    print(f'Poll {i}: {state}')
-    if state in ('SUCCEEDED', 'FAILED', 'CANCELED', 'TIMED_OUT'):
-        print('Final job:', json.dumps(job, indent=2)[:40000])
-        break
-    time.sleep(5)
+TARGET = 'NI_PXIe-8880--SN-031062CE--MAC-00-80-2F-16-5C-C1'
+WORK_ITEM_ID = '3863530'
+
+
+if __name__ == '__main__':
+    sys.argv = [
+        sys.argv[0],
+        'run-test',
+        '--alias',
+        TARGET,
+        '--work-item-id',
+        WORK_ITEM_ID,
+        '--cmd-prefix',
+        'set PYTHONUTF8=1',
+        *sys.argv[1:],
+    ]
+    raise SystemExit(main())

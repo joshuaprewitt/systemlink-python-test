@@ -34,9 +34,12 @@ if "%BASE_VERSION%"=="" (
     exit /b 1
 )
 if "%NEXT_BUILD%"=="" set NEXT_BUILD=0
+set /a NEXT_BUILD=0+NEXT_BUILD 2>nul
+if %ERRORLEVEL% NEQ 0 set NEXT_BUILD=0
 set PACKAGE_VERSION=%BASE_VERSION%.%NEXT_BUILD%
-set /a WRITE_BUILD=%NEXT_BUILD%+1
-echo %WRITE_BUILD%>"%BUILD_NUMBER_FILE%"
+set /a WRITE_BUILD=NEXT_BUILD+1
+if "%WRITE_BUILD%"=="" set WRITE_BUILD=1
+>"%BUILD_NUMBER_FILE%" echo(%WRITE_BUILD%
 echo Version for this build: %PACKAGE_VERSION%
 
 where nipkg >nul 2>nul
@@ -61,6 +64,8 @@ mkdir "%DIST_DIR%"
 
 REM Copy application source files
 copy "%PROJECT_DIR%config.py" "%DATA_DIR%\"
+copy "%PROJECT_DIR%identity.py" "%DATA_DIR%\"
+copy "%PROJECT_DIR%steps.py" "%DATA_DIR%\"
 copy "%PROJECT_DIR%initialization.py" "%DATA_DIR%\"
 copy "%PROJECT_DIR%execution.py" "%DATA_DIR%\"
 copy "%PROJECT_DIR%simulator.py" "%DATA_DIR%\"
@@ -69,7 +74,7 @@ copy "%PROJECT_DIR%requirements.txt" "%DATA_DIR%\"
 
 REM Copy control metadata
 copy "%CONTROL_TEMPLATE%" "%CONTROL_DIR%\control.template" >nul
-powershell -NoProfile -Command "$p='%CONTROL_DIR%\control.template'; $o='%CONTROL_DIR%\control'; (Get-Content -Raw $p) -replace '(?m)^Version:\s*.*$','Version: %PACKAGE_VERSION%' | Set-Content -Encoding ASCII $o"
+powershell -NoProfile -Command "$p='%CONTROL_DIR%\control.template'; $o='%CONTROL_DIR%\control'; (Get-Content -Raw $p) -replace '(?m)^Version:\s*.*$','Version: %PACKAGE_VERSION%' | Set-Content -Encoding Default $o"
 if %ERRORLEVEL% NEQ 0 (
     echo Failed to stamp package version into control file.
     exit /b 1
@@ -77,7 +82,7 @@ if %ERRORLEVEL% NEQ 0 (
 del "%CONTROL_DIR%\control.template" >nul 2>nul
 
 if exist "%DEPLOY_SLS%" (
-    powershell -NoProfile -Command "$p='%DEPLOY_SLS%'; (Get-Content -Raw $p) -replace '(?m)^\s*-\s*18650-battery-test:\s*.*$','      - 18650-battery-test: %PACKAGE_VERSION%' | Set-Content -Encoding ASCII $p"
+    powershell -NoProfile -Command "$p='%DEPLOY_SLS%'; (Get-Content -Raw $p) -replace '(?m)^\s*-\s*18650-battery-test:\s*.*$','      - 18650-battery-test: %PACKAGE_VERSION%' | Set-Content -Encoding Default $p"
     if %ERRORLEVEL% NEQ 0 (
         echo Failed to update deploy\install.sls with package version.
         exit /b 1

@@ -26,7 +26,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def main() -> int:
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=f"{PROGRAM_NAME} — 18650 Battery Cell Test (SystemLink-integrated)",
     )
@@ -42,16 +42,29 @@ def main() -> int:
         "--api-key",
         help="SystemLink API key. For dev use.",
     )
-    args = parser.parse_args()
+    return parser.parse_args()
 
+
+def _resolve_work_item_id(args: argparse.Namespace) -> tuple[str, bool]:
     interactive = args.work_item_id is None
     work_item_id = args.work_item_id
 
     if interactive:
         work_item_id = input("Enter Work Item ID: ").strip()
         if not work_item_id:
-            logger.error("No work item ID provided")
-            return 1
+            raise RuntimeError("No work item ID provided")
+
+    return work_item_id, interactive
+
+
+def main() -> int:
+    args = _parse_args()
+
+    try:
+        work_item_id, interactive = _resolve_work_item_id(args)
+    except RuntimeError as ex:
+        logger.error(str(ex))
+        return 1
 
     configuration = get_configuration(server=args.server, api_key=args.api_key)
 
