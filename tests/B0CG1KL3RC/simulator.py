@@ -30,10 +30,12 @@ def measure_open_circuit_voltage(temp_c: float = 25.0) -> float:
 def measure_voltage_under_load(load_current_a: float, temp_c: float = 25.0) -> float:
     """Simulate terminal voltage under *load_current_a* amps (V).
 
-    Internal resistance increases at cold, causing greater voltage sag.
-    IR model: 50 mΩ at 25°C, +2 mΩ per °C below 0°C.
+    DC internal resistance (nominally higher than AC IR) follows an
+    Arrhenius-like exponential: doubles roughly every 30°C below 25°C.
+    Nominal DC IR: 50 mΩ at 25°C; ~89 mΩ at 0°C; ~159 mΩ at −25°C.
     """
-    ir_mohm = 50.0 + max(0.0, -temp_c) * 2.0
+    cold_delta = max(0.0, 25.0 - temp_c)
+    ir_mohm = 50.0 * (2.0 ** (cold_delta / 30.0))
     ir_drop = load_current_a * ir_mohm / 1000.0
     return _noisy(3.7 - ir_drop, 0.02)
 
@@ -41,21 +43,35 @@ def measure_voltage_under_load(load_current_a: float, temp_c: float = 25.0) -> f
 def measure_internal_resistance(temp_c: float = 25.0) -> float:
     """Simulate AC internal resistance (mΩ).
 
-    Increases significantly below 0°C (+2.5% per °C). At -25°C the nominal
-    value (~101 mΩ) exceeds the 80 mΩ high limit.
+    Arrhenius-like exponential model: resistance roughly doubles every 30°C
+    below 25°C. At 0°C ~80 mΩ (at the high limit); at −25°C ~143 mΩ, well
+    above it. A modest +0.5%/°C increase applies above 45°C.
     """
-    cold_factor = 1.0 + max(0.0, -temp_c) * 0.025
-    return _noisy(45.0 * cold_factor, 0.15)
+    cold_delta = max(0.0, 25.0 - temp_c)
+    cold_factor = 2.0 ** (cold_delta / 30.0)
+    heat_factor = 1.0 + max(0.0, temp_c - 45.0) * 0.005
+    return _noisy(45.0 * cold_factor * heat_factor, 0.15)
 
 
 def measure_capacity(temp_c: float = 25.0) -> float:
     """Simulate charge/discharge capacity (mAh).
 
-    Capacity derates below 0°C (1.5% per °C). At -10°C ~2125 mAh and at
-    -25°C ~1560 mAh — both below the 2250 mAh low limit.
+    Piecewise model reflecting measured Li-ion behaviour:
+    - 0–35°C: full rated capacity.
+    - Above 35°C: 0.4%/°C loss; at 60°C ~2250 mAh (at the low limit).
+    - 0°C to −10°C: 1.2%/°C loss (gentle derating near freezing);
+      at −10°C ~2200 mAh, just below the 2250 mAh low limit.
+    - Below −10°C: 2.5%/°C additional loss; at −25°C ~1260 mAh (~50%).
     """
-    cold_derating = max(0.0, -temp_c) * 0.015
-    nominal = 2500.0 * max(0.3, 1.0 - cold_derating)
+    if temp_c >= 35.0:
+        derating_factor = 1.0 - (temp_c - 35.0) * 0.004
+    elif temp_c >= 0.0:
+        derating_factor = 1.0
+    elif temp_c >= -10.0:
+        derating_factor = 1.0 + temp_c * 0.012  # temp_c is negative
+    else:
+        derating_factor = 0.88 + (temp_c + 10.0) * 0.025  # (temp_c + 10) is negative
+    nominal = 2500.0 * max(0.3, derating_factor)
     return _noisy(nominal, 0.05)
 
 
