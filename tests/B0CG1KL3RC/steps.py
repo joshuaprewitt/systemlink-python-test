@@ -88,7 +88,7 @@ def build_step(
                     highLimit=str(high_limit),
                     units=units,
                     comparisonType="GELE",
-                    specId=spec_id,
+                    **{"SpecID": spec_id},
                 )
             ],
         ),
