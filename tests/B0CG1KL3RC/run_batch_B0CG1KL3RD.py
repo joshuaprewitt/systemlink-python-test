@@ -101,6 +101,14 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--server", help="SystemLink server URI. For dev use.")
     parser.add_argument("--api-key", help="SystemLink API key. For dev use.")
+    parser.add_argument(
+        "--temperatures",
+        nargs="+",
+        type=float,
+        default=None,
+        metavar="TEMP",
+        help="Override temperature conditions (°C). Defaults to the 4-point matrix.",
+    )
     return parser.parse_args()
 
 
@@ -155,6 +163,7 @@ def _create_work_items(
     test_plan_id: str,
     workspace: str | None,
     dut_ids: dict[str, str],
+    run_matrix: list[tuple[str, float]],
 ) -> list[tuple[str, str, float]]:
     """Create one work item per (DUT, temperature) and return [(wi_id, serial, temp_c), ...]."""
     requests = [
@@ -181,7 +190,7 @@ def _create_work_items(
                 "charge_rate_a": "1.0",
             },
         )
-        for serial, temp in RUN_MATRIX
+        for serial, temp in run_matrix
     ]
 
     response = wi_client.create_work_items(requests)
@@ -221,11 +230,14 @@ def main() -> int:
     logger.info("Resolving DUT assets for part number %s", PART_NUMBER_RD)
     dut_ids = _resolve_dut_ids(asset_client, SERIALS, PART_NUMBER_RD)
 
+    temperatures = args.temperatures if args.temperatures is not None else TEMPERATURES
+    run_matrix = [(serial, temp) for serial in SERIALS for temp in temperatures]
+
     logger.info(
         "Creating %d work items (%d DUTs × %d temps) under work order %s",
-        len(RUN_MATRIX), len(SERIALS), len(TEMPERATURES), work_order_id,
+        len(run_matrix), len(SERIALS), len(temperatures), work_order_id,
     )
-    dut_items = _create_work_items(wi_client, work_order_id, workspace, dut_ids)
+    dut_items = _create_work_items(wi_client, work_order_id, workspace, dut_ids, run_matrix)
 
     if not dut_items:
         logger.error("No work items were created — aborting")
@@ -251,7 +263,7 @@ def main() -> int:
 
     # --- Summary ---
     print("\n" + "=" * 68)
-    print(f"Batch complete — {PART_NUMBER_RD}  ({len(RUN_MATRIX)} runs)  work order: {work_order_id}")
+    print(f"Batch complete — {PART_NUMBER_RD}  ({len(run_matrix)} runs)  work order: {work_order_id}")
     print("=" * 68)
     passed = sum(1 for *_, r in results if r is not None)
     print(f"{'Serial':<10} {'Temp (°C)':<12} {'Work Item':<24} {'Result ID'}")
