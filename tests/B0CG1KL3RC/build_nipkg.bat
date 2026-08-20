@@ -22,24 +22,22 @@ set DEPLOY_SLS=%PROJECT_DIR%deploy\install.sls
 set NIPKG_EXE=nipkg
 set PACKAGE_VERSION=
 set BASE_VERSION=
-set NEXT_BUILD=
+set TIMESTAMP=
 
 echo === 18650 Battery Test — nipkg build ===
 
-REM Read base version (e.g. 1.0.1) and next build number, then increment the counter.
+REM Read base version (e.g. 1.0.1) and append a timestamp for uniqueness.
 set /p BASE_VERSION=<"%VERSION_FILE%"
-set /p NEXT_BUILD=<"%BUILD_NUMBER_FILE%"
 if "%BASE_VERSION%"=="" (
     echo Failed to read package\version.txt.
     exit /b 1
 )
-if "%NEXT_BUILD%"=="" set NEXT_BUILD=0
-set /a NEXT_BUILD=0+NEXT_BUILD 2>nul
-if %ERRORLEVEL% NEQ 0 set NEXT_BUILD=0
-set PACKAGE_VERSION=%BASE_VERSION%.%NEXT_BUILD%
-set /a WRITE_BUILD=NEXT_BUILD+1
-if "%WRITE_BUILD%"=="" set WRITE_BUILD=1
->"%BUILD_NUMBER_FILE%" echo(%WRITE_BUILD%
+for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMddHHmmss"') do set TIMESTAMP=%%i
+if "%TIMESTAMP%"=="" (
+    echo Failed to generate timestamp version suffix.
+    exit /b 1
+)
+set PACKAGE_VERSION=%BASE_VERSION%.%TIMESTAMP%
 echo Version for this build: %PACKAGE_VERSION%
 
 where nipkg >nul 2>nul
