@@ -5,8 +5,8 @@ in round-robin across 3 system IDs, then executes the test flow to publish
 results.
 
 Usage:
-    python run_batch_public_demo_3systems.py --server <URL> --api-key <KEY> \
-      --system-id <SYSTEM_1> --system-id <SYSTEM_2> --system-id <SYSTEM_3>
+        python run_batch_public_demo_3systems.py \
+            --system-id <SYSTEM_1> --system-id <SYSTEM_2> --system-id <SYSTEM_3>
 """
 
 import argparse
@@ -44,13 +44,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Public Demo workspace (provided by user).
-WORKSPACE_ID = "35b4522f-8875-43a4-8717-172ff004b275"
 DEFAULT_DEMO_PART_NUMBER = "NCR18650GA"
 EXPECTED_SYSTEM_COUNT = 3
 SYSTEM_QUERY_TAKE = 500
 SYSTEMLINK_API_KEY_HEADER = "x-ni-api-key"
-DEMO_SERVER_TOKEN = "demo-api"
 PARENT_WORKORDER_NAME = "18650 Battery Tests"
 
 # Use 100 DUT serial identifiers and test each DUT twice (200 total results).
@@ -75,16 +72,16 @@ ResultRow = tuple[str, str, str, float, str, str | None]
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description=(
-            f"{PROGRAM_NAME} batch generator for 3 systems in workspace {WORKSPACE_ID}"
-        )
+        description=f"{PROGRAM_NAME} batch generator for 3 systems"
     )
-    parser.add_argument("--server", help="SystemLink server URI.")
-    parser.add_argument("--api-key", help="SystemLink API key.")
     parser.add_argument(
         "--workspace-id",
-        default=WORKSPACE_ID,
-        help=f"Workspace ID for generated data. Default: {WORKSPACE_ID}",
+        default=None,
+        help=(
+            "Workspace ID for generated data. "
+            "Defaults to the workspace configured on the active slcli profile. "
+            "Required only when the active slcli profile has no workspace set."
+        ),
     )
     parser.add_argument(
         "--part-number",
@@ -117,23 +114,65 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Optional RNG seed for reproducible operator assignment.",
     )
-    parser.add_argument(
-        "--allow-non-demo-server",
-        action="store_true",
-        help="Allow execution against a non-demo server URI.",
-    )
     return parser.parse_args()
 
 
-def _assert_demo_server(server_uri: str, allow_non_demo: bool) -> None:
-    uri = (server_uri or "").lower()
-    if allow_non_demo:
-        return
-    if DEMO_SERVER_TOKEN not in uri:
-        raise RuntimeError(
-            "This script is restricted to demo server usage. "
-            "Use a demo-api server URI or pass --allow-non-demo-server."
+def _get_active_slcli_profile() -> tuple[str, str, str, str | None]:
+    """Return active slcli profile details: (name, server, api_key, workspace)."""
+    try:
+        completed = subprocess.run(
+            ["slcli", "config", "view", "--format", "json", "--show-secrets"],
+            check=True,
+            capture_output=True,
+            text=True,
         )
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        raise RuntimeError(
+            "Failed to read active slcli profile. Run 'slcli config add' first."
+        ) from exc
+
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Could not parse slcli config JSON output.") from exc
+
+    profile_name = payload.get("current-profile")
+    profiles = payload.get("profiles") or {}
+    if not profile_name or profile_name not in profiles:
+        raise RuntimeError("No active slcli profile found.")
+
+    profile = profiles[profile_name] or {}
+    server = str(profile.get("server") or "")
+    api_key = str(profile.get("api-key") or "")
+    workspace = profile.get("workspace")
+    if not server or not api_key:
+        raise RuntimeError(
+            f"Active slcli profile '{profile_name}' is missing server or api-key."
+        )
+
+    workspace_id = str(workspace).strip() if workspace else None
+    return profile_name, server, api_key, workspace_id
+
+
+def _resolve_runtime_configuration(args: argparse.Namespace):
+    profile_name, server, api_key, profile_workspace = _get_active_slcli_profile()
+    configuration = get_configuration(server=server, api_key=api_key)
+    if configuration is None:
+        raise RuntimeError("Could not build SystemLink configuration from slcli profile.")
+
+    workspace_id = str(args.workspace_id or profile_workspace or "").strip()
+    if not workspace_id:
+        raise RuntimeError(
+            "No workspace provided. Set workspace on the active slcli profile "
+            "or pass --workspace-id."
+        )
+    logger.info(
+        "Using slcli profile '%s' (server=%s workspace=%s)",
+        profile_name,
+        server,
+        workspace_id,
+    )
+    return configuration, workspace_id
 
 
 def _require_unique_system_ids(system_ids: Sequence[str]) -> list[str]:
@@ -537,9 +576,7 @@ def _print_summary(
 
 def main() -> int:
     args = _parse_args()
-    configuration = get_configuration(server=args.server, api_key=args.api_key)
-
-    _assert_demo_server(str(configuration.server_uri), args.allow_non_demo_server)
+    configuration, workspace_id = _resolve_runtime_configuration(args)
 
     unique_system_ids = _require_unique_system_ids(args.system_ids)
 
@@ -551,11 +588,11 @@ def main() -> int:
     product_client = ProductClient(configuration)
     asset_client = AssetManagementClient(configuration)
 
-    _ensure_product_exists(product_client, args.part_number, args.workspace_id)
+    _ensure_product_exists(product_client, args.part_number, workspace_id)
 
     parent_workorder_id = _create_parent_workorder(
         wi_client,
-        args.workspace_id,
+        workspace_id,
         args.part_number,
     )
     logger.info("Created parent workorder %s", parent_workorder_id)
@@ -564,14 +601,14 @@ def main() -> int:
     system_display_names = _resolve_system_display_names(
         configuration,
         unique_system_ids,
-        args.workspace_id,
+        workspace_id,
     )
 
     run_matrix = _build_run_matrix(SERIALS, unique_system_ids, TESTS_PER_DUT)
     created = _create_work_items(
         wi_client,
         parent_workorder_id,
-        args.workspace_id,
+        workspace_id,
         args.part_number,
         dut_ids,
         run_matrix,
@@ -597,7 +634,7 @@ def main() -> int:
 
     passed = _print_summary(
         parent_workorder_id,
-        args.workspace_id,
+        workspace_id,
         results,
     )
 
