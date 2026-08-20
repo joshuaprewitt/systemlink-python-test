@@ -1,6 +1,7 @@
 """Test execution: create result, run steps, upload files, and update work item."""
 
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -88,6 +89,15 @@ def _build_under_load_step(result_id: str, ctx: TestContext, specs: dict[str, st
 
 def _build_internal_resistance_step(result_id: str, ctx: TestContext, specs: dict[str, str], temp_c: float) -> CreateStepRequest:
     started_at, duration, measured = capture_measurement(measure_internal_resistance, temp_c)
+    scale = 1.0
+    scale_text = os.environ.get("SYSTEMLINK_INTERNAL_RESISTANCE_SCALE", "").strip()
+    if scale_text:
+        try:
+            scale = float(scale_text)
+        except ValueError:
+            logger.warning("Invalid SYSTEMLINK_INTERNAL_RESISTANCE_SCALE=%r; using 1.0", scale_text)
+            scale = 1.0
+    measured = round(measured * scale, 4)
     return build_step(
         result_id=result_id,
         name="Internal Resistance",

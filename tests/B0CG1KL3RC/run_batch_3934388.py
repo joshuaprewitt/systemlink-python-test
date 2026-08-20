@@ -13,6 +13,7 @@ accepted as an alternative to CLI flags.
 import argparse
 import logging
 import sys
+from datetime import datetime, timezone
 
 from nisystemlink.clients.assetmanagement import AssetManagementClient
 from nisystemlink.clients.assetmanagement.models import QueryAssetsRequest
@@ -22,6 +23,8 @@ from nisystemlink.clients.work_item.models import (
     ResourceDefinition,
     ResourceSelectionDefinition,
     ResourcesDefinition,
+    SystemResourceDefinition,
+    SystemResourceSelectionDefinition,
 )
 
 from config import PART_NUMBER, PROGRAM_NAME, get_configuration
@@ -34,7 +37,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TEST_PLAN_ID = "3934388"
+DEFAULT_PARENT_WORK_ITEM_ID = "3934388"
 
 # 10 DUTs: serial 1234 – 1243
 SERIALS = [str(n) for n in range(1234, 1244)]
@@ -81,17 +84,39 @@ def _resolve_dut_ids(
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description=f"{PROGRAM_NAME} — batch run (test plan {TEST_PLAN_ID})"
+        description=(
+            f"{PROGRAM_NAME} — batch run "
+            f"(default parent {DEFAULT_PARENT_WORK_ITEM_ID})"
+        )
     )
     parser.add_argument("--server", help="SystemLink server URI. For dev use.")
     parser.add_argument("--api-key", help="SystemLink API key. For dev use.")
+    parser.add_argument(
+        "--parent-work-item-id",
+        default=DEFAULT_PARENT_WORK_ITEM_ID,
+        help=(
+            "Parent work item ID under which DUT work items are created. "
+            f"Default: {DEFAULT_PARENT_WORK_ITEM_ID}"
+        ),
+    )
+    parser.add_argument(
+        "--assigned-to-user-id",
+        help="Assign each created DUT work item to this user ID.",
+    )
+    parser.add_argument(
+        "--system-id",
+        help="Attach each created DUT work item to this system resource ID.",
+    )
     return parser.parse_args()
 
 
 def _create_work_items(
     wi_client: WorkItemClient,
+    parent_work_item_id: str,
     workspace: str | None,
     dut_ids: dict[str, str],
+    assigned_to_user_id: str | None,
+    system_id: str | None,
 ) -> list[tuple[str, str, float]]:
     """Create one work item per DUT and return [(work_item_id, serial, temp_c), ...]."""
     requests = [
@@ -99,17 +124,21 @@ def _create_work_items(
             name=f"18650 Battery Test — SN {serial} @ {temp:+.0f}°C",
             type="testplan",
             state="DEFINED",
-            parent_id=TEST_PLAN_ID,
+            parent_id=parent_work_item_id,
+            assigned_to=assigned_to_user_id,
             part_number=PART_NUMBER,
             test_program=PROGRAM_NAME,
             workspace=workspace,
-            workflow_id="422815",
             resources=ResourcesDefinition(
                 duts=ResourceDefinition(
                     selections=[
                         ResourceSelectionDefinition(id=dut_ids[serial])
                     ] if serial in dut_ids else [],
                 )
+                ,
+                systems=SystemResourceDefinition(
+                    selections=[SystemResourceSelectionDefinition(id=system_id)] if system_id else [],
+                ),
             ),
             properties={
                 "serialNumber": serial,
@@ -137,14 +166,65 @@ def _create_work_items(
     return created
 
 
-def _get_plan_workspace(wi_client: WorkItemClient) -> str | None:
-    """Return the workspace of the test plan so new work items inherit it."""
+def _resolve_parent_work_item(
+    wi_client: WorkItemClient,
+    candidate_parent_id: str,
+) -> tuple[str, str | None]:
+    """Resolve a valid parent work item for this product.
+
+    If the provided parent belongs to a different part number, create and use
+    a new parent test plan for this product in the same workspace.
+    """
     try:
-        plan = wi_client.get_work_item(TEST_PLAN_ID)
-        return plan.workspace
+        parent = wi_client.get_work_item(candidate_parent_id)
     except Exception:
-        logger.warning("Could not fetch test plan %s — workspace will be omitted", TEST_PLAN_ID)
-        return None
+        logger.warning(
+            "Could not fetch parent work item %s; creating a new parent for part %s",
+            candidate_parent_id,
+            PART_NUMBER,
+        )
+        return _create_parent_work_item(wi_client, workspace=None)
+
+    if parent.part_number == PART_NUMBER and parent.type == "workorder":
+        logger.info(
+            "Using existing parent work item %s for part %s",
+            parent.id,
+            PART_NUMBER,
+        )
+        return parent.id, parent.workspace
+
+    logger.warning(
+        "Parent work item %s is incompatible (type=%s, part=%s); creating product-specific workorder parent",
+        parent.id,
+        parent.type,
+        parent.part_number,
+    )
+    return _create_parent_work_item(wi_client, workspace=parent.workspace)
+
+
+def _create_parent_work_item(
+    wi_client: WorkItemClient,
+    workspace: str | None,
+) -> tuple[str, str | None]:
+    """Create a top-level parent work order for this product."""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    response = wi_client.create_work_items(
+        [
+            CreateWorkItemRequest(
+            name=f"{PROGRAM_NAME} Batch Parent {stamp}",
+            type="workorder",
+            state="DEFINED",
+            part_number=PART_NUMBER,
+            workspace=workspace,
+            )
+        ]
+    )
+    if not response.created_work_items:
+        raise RuntimeError(f"Failed to create parent work item: {response.failed_work_items}")
+
+    created = response.created_work_items[0]
+    logger.info("Created parent workorder %s for part %s", created.id, PART_NUMBER)
+    return created.id, created.workspace
 
 
 def main() -> int:
@@ -153,15 +233,24 @@ def main() -> int:
 
     wi_client = WorkItemClient(configuration)
 
-    logger.info("Fetching workspace from test plan %s", TEST_PLAN_ID)
-    workspace = _get_plan_workspace(wi_client)
+    logger.info("Resolving parent work item from %s", args.parent_work_item_id)
+    parent_work_item_id, workspace = _resolve_parent_work_item(
+        wi_client, args.parent_work_item_id
+    )
 
     asset_client = AssetManagementClient(configuration)
     logger.info("Resolving DUT assets for part number %s", PART_NUMBER)
     dut_ids = _resolve_dut_ids(asset_client, SERIALS, PART_NUMBER)
 
-    logger.info("Creating %d work items under test plan %s", len(SERIALS), TEST_PLAN_ID)
-    dut_items = _create_work_items(wi_client, workspace, dut_ids)
+    logger.info("Creating %d work items under parent %s", len(SERIALS), parent_work_item_id)
+    dut_items = _create_work_items(
+        wi_client,
+        parent_work_item_id,
+        workspace,
+        dut_ids,
+        args.assigned_to_user_id,
+        args.system_id,
+    )
 
     if not dut_items:
         logger.error("No work items were created — aborting")
@@ -184,7 +273,7 @@ def main() -> int:
 
     # --- Summary ---
     print("\n" + "=" * 60)
-    print(f"Batch complete — test plan {TEST_PLAN_ID}")
+    print(f"Batch complete — parent {parent_work_item_id}")
     print("=" * 60)
     passed = sum(1 for *_, r in results if r is not None)
     print(f"{'Serial':<12} {'Temp (°C)':<12} {'Work Item':<20} {'Result ID'}")
